@@ -20,6 +20,7 @@ export class Scheduler {
   private memory: Memory;
   private gateway: Gateway;
   private jobs: Map<string, CronJob> = new Map();
+  private oneTimeJobs: Map<string, NodeJS.Timeout> = new Map();
 
   constructor(memory: Memory, gateway: Gateway) {
     this.memory = memory;
@@ -93,12 +94,14 @@ export class Scheduler {
       log('info', `🔔 Executing scheduled job: ${schedule.id}`);
 
       // Gateway를 통해 Telegram으로 메시지 전송
+      // userId는 Telegram user ID이므로 private chat에서 chatId와 동일
       this.gateway.broadcast({
         from: 'scheduler',
         to: 'telegram',
         userId: schedule.userId,
         content: schedule.message,
         metadata: {
+          chatId: Number(schedule.userId),
           scheduleId: schedule.id,
           cronExpression: schedule.cronExpression,
         },
@@ -139,6 +142,38 @@ export class Scheduler {
       log('error', `❌ Failed to add schedule: ${error}`);
       throw error;
     }
+  }
+
+  /**
+   * 1회성 스케줄 추가 (N분 후 실행, 실행 후 자동 비활성화)
+   */
+  addOneTimeSchedule(userId: string, minutes: number, message: string): void {
+    const scheduleId = `once_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const delayMs = minutes * 60 * 1000;
+
+    log('info', `⏰ One-time schedule: "${message}" in ${minutes}min (id: ${scheduleId})`);
+
+    const timer = setTimeout(() => {
+      log('info', `🔔 Executing one-time job: ${scheduleId}`);
+
+      this.gateway.broadcast({
+        from: 'scheduler',
+        to: 'telegram',
+        userId,
+        content: message,
+        metadata: {
+          chatId: Number(userId),
+          scheduleId,
+          oneTime: true,
+        },
+      });
+
+      // 타이머 정리
+      this.oneTimeJobs.delete(scheduleId);
+      log('info', `✅ One-time job completed and removed: ${scheduleId}`);
+    }, delayMs);
+
+    this.oneTimeJobs.set(scheduleId, timer);
   }
 
   /**
@@ -241,6 +276,11 @@ export class Scheduler {
       job.task.stop();
     });
     this.jobs.clear();
+
+    this.oneTimeJobs.forEach((timer) => {
+      clearTimeout(timer);
+    });
+    this.oneTimeJobs.clear();
 
     log('info', '✅ Scheduler stopped');
   }

@@ -5,6 +5,7 @@ import { ClaudeCodeAgent } from './agent/claude-code.js';
 import { TelegramChannel } from './channels/telegram.js';
 import { Scheduler } from './scheduler/cron.js';
 import { log } from './utils/logger.js';
+import { loadMemoryConfig } from './memory-new/config.js';
 import path from 'path';
 
 // 환경 변수 로드
@@ -36,6 +37,9 @@ class Michael {
     // Agent를 Gateway에 연결
     this.gateway.setAgent(this.agent);
 
+    // Agent에 Scheduler 연결 (스케줄 즉시 등록용)
+    this.agent.setScheduler(this.scheduler);
+
     log('info', '🚀 Michael initialized');
   }
 
@@ -44,6 +48,19 @@ class Michael {
    */
   async start(): Promise<void> {
     try {
+      // 벡터 검색 초기화 (선택적 - 실패해도 계속 진행)
+      try {
+        const dataDir = process.env.DATA_DIR || './data';
+        const config = loadMemoryConfig(dataDir);
+        await this.memory.initializeVectorSearch(config);
+        log('info', '✅ Vector search initialized');
+
+        // 기존 메시지 인덱싱 (최초 실행 시)
+        await this.memory.syncMessagesToChunks();
+      } catch (error) {
+        log('warn', `⚠️ Vector search initialization failed (continuing without it): ${error}`);
+      }
+
       // Gateway 시작
       await this.gateway.start();
 
@@ -87,14 +104,14 @@ class Michael {
    */
   async stop(): Promise<void> {
     log('info', '👋 Stopping Michael...');
-    
+
     this.scheduler.stop();
     if (this.telegram) {
       await this.telegram.stop();
     }
     await this.gateway.close();
     this.agent.close();
-    this.memory.close();
+    await this.memory.close(); // async for vector search cleanup
 
     log('info', '✅ Michael stopped');
   }

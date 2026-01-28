@@ -9,9 +9,14 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "daemon": "tsx src/daemon.ts",
-    "test": "vitest",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run --exclude='**/*.integration.test.ts'",
+    "test:integration": "INTEGRATION_TESTS=true vitest run --include='**/*.integration.test.ts'",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint src",
-    "format": "prettier --write src"
+    "format": "prettier --write src",
+    "demo:vector": "tsx examples/vector-search-demo.ts"
   },
   "keywords": [
     "ai",
@@ -25,22 +30,24 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
     "better-sqlite3": "^11.7.0",
+    "chokidar": "^5.0.0",
     "dotenv": "^16.4.7",
-    "telegraf": "^4.16.3",
-    "ws": "^8.18.0",
     "node-cron": "^3.0.3",
-    "chokidar": "^4.0.3"
+    "sqlite-vec": "0.1.7-alpha.2",
+    "telegraf": "^4.16.3",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.5",
     "@types/node-cron": "^3.0.11",
     "@types/ws": "^8.5.13",
+    "eslint": "^9.17.0",
+    "node-llama-cpp": "3.15.0",
+    "prettier": "^3.4.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8",
-    "eslint": "^9.17.0",
-    "prettier": "^3.4.2"
+    "vitest": "^2.1.8"
   },
   "engines": {
     "node": ">=22.0.0"

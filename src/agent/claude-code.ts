@@ -1,6 +1,16 @@
 import { spawn, ChildProcess } from 'child_process';
-import { Memory } from '../brain/memory.js';
+import { Memory, Message, Schedule } from '../brain/memory.js';
+import { Scheduler } from '../scheduler/cron.js';
 import { log } from '../utils/logger.js';
+
+/**
+ * 벡터 검색 결과 타입 (Message + 점수)
+ */
+type VectorSearchResult = Message & {
+  score: number;
+  vectorScore?: number;
+  textScore?: number;
+};
 
 /**
  * Claude Code Agent 옵션
@@ -18,11 +28,19 @@ export interface ClaudeCodeOptions {
  */
 export class ClaudeCodeAgent {
   private memory: Memory;
+  private scheduler: Scheduler | null = null;
   private process: ChildProcess | null = null;
 
   constructor(memory: Memory) {
     this.memory = memory;
     log('info', '✅ Claude Code Agent initialized');
+  }
+
+  /**
+   * Scheduler 설정 (스케줄 즉시 등록용)
+   */
+  setScheduler(scheduler: Scheduler): void {
+    this.scheduler = scheduler;
   }
 
   /**
@@ -34,8 +52,8 @@ export class ClaudeCodeAgent {
     options: ClaudeCodeOptions = {}
   ): Promise<string> {
     try {
-      // 1. 메모리에서 컨텍스트 로드
-      const context = await this.loadContext(userId);
+      // 1. 메모리에서 컨텍스트 로드 (벡터 검색 포함)
+      const context = await this.loadContext(userId, message);
 
       // 2. 프롬프트 구성
       const prompt = this.buildPrompt(message, context);
@@ -55,17 +73,62 @@ export class ClaudeCodeAgent {
 
   /**
    * 메모리에서 컨텍스트 로드
+   *
+   * 벡터 검색이 활성화된 경우, 사용자 메시지와 의미적으로 관련된 과거 대화를 찾아
+   * 최근 메시지와 함께 컨텍스트로 제공합니다.
    */
-  private async loadContext(userId: string): Promise<{
-    recentMessages: any[];
+  private async loadContext(
+    userId: string,
+    currentMessage?: string
+  ): Promise<{
+    recentMessages: Message[];
+    relatedMessages: VectorSearchResult[];
     facts: Record<string, string>;
+    schedules: Schedule[];
   }> {
-    const [recentMessages, facts] = await Promise.all([
+    const [recentMessages, facts, schedules] = await Promise.all([
       this.memory.getRecentMessages(userId, 5),
       this.memory.getAllFacts(userId),
+      this.memory.getAllSchedules(userId),
     ]);
 
-    return { recentMessages, facts };
+    // 벡터 검색으로 관련 메시지 찾기 (벡터 검색이 초기화된 경우만)
+    let relatedMessages: VectorSearchResult[] = [];
+    const VECTOR_SEARCH_TIMEOUT_MS = 10000; // 10 second timeout
+
+    if (currentMessage) {
+      try {
+        // Timeout wrapper for vector search
+        const searchPromise = this.memory.searchMessagesVector(userId, currentMessage, {
+          maxResults: 3,
+          minScore: 0.7,
+        });
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Vector search timeout')), VECTOR_SEARCH_TIMEOUT_MS)
+        );
+
+        relatedMessages = await Promise.race([searchPromise, timeoutPromise]);
+
+        // 최근 메시지와 중복 제거
+        const recentIds = new Set(recentMessages.map((m) => m.id));
+        relatedMessages = relatedMessages.filter((m) => !recentIds.has(m.id));
+      } catch (error) {
+        // 초기화 에러, 타임아웃, 검색 에러 구분
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes('not initialized')) {
+          // 벡터 검색이 초기화되지 않은 경우 - 정상적인 상황
+          log('debug', 'Vector search not initialized, skipping semantic search');
+        } else if (errorMessage.includes('timeout')) {
+          // 타임아웃 - 경고 레벨로 로깅
+          log('warn', `Vector search timed out for user ${userId} after ${VECTOR_SEARCH_TIMEOUT_MS}ms`);
+        } else {
+          // 실제 검색 에러 - 경고 레벨로 로깅
+          log('warn', `Vector search failed for user ${userId}: ${errorMessage}`);
+        }
+      }
+    }
+
+    return { recentMessages, relatedMessages, facts, schedules };
   }
 
   /**
@@ -74,8 +137,10 @@ export class ClaudeCodeAgent {
   private buildPrompt(
     message: string,
     context: {
-      recentMessages: any[];
+      recentMessages: Message[];
+      relatedMessages: VectorSearchResult[];
       facts: Record<string, string>;
+      schedules: Schedule[];
     }
   ): string {
     const factsText = Object.entries(context.facts)
@@ -86,6 +151,22 @@ export class ClaudeCodeAgent {
       .map((msg) => `${msg.role}: ${msg.content}`)
       .join('\n');
 
+    // 벡터 검색으로 찾은 관련 대화 추가
+    let relatedMessagesText = '';
+    if (context.relatedMessages.length > 0) {
+      relatedMessagesText = context.relatedMessages
+        .map((msg) => {
+          const score = msg.score ? ` (relevance: ${(msg.score * 100).toFixed(0)}%)` : '';
+          return `${msg.role}: ${msg.content}${score}`;
+        })
+        .join('\n');
+    }
+
+    // 활성 스케줄 목록
+    const schedulesText = context.schedules
+      .map((s) => `- id: ${s.id} | cron: ${s.cronExpression} | message: "${s.message}"`)
+      .join('\n');
+
     return `
 You are Michael, a personal AI assistant that is always awake and remembers everything.
 You are friendly, helpful, and proactive.
@@ -93,9 +174,19 @@ You are friendly, helpful, and proactive.
 # User Information (Facts)
 ${factsText || '(No facts stored yet)'}
 
+# Active Schedules
+${schedulesText || '(No active schedules)'}
+
 # Recent Conversation
 ${recentMessagesText || '(No recent messages)'}
 
+${
+  relatedMessagesText
+    ? `# Related Past Conversations (found via semantic search)
+${relatedMessagesText}
+`
+    : ''
+}
 # Current Message
 user: ${message}
 
@@ -103,7 +194,21 @@ user: ${message}
 - Be friendly and conversational
 - Remember important information that the user shares
 - If the user asks you to remember something, extract the key-value pair and mark it with [FACT:key:value]
-- If the user asks you to schedule something, parse the cron expression and mark it with [SCHEDULE:cron_expr:message]
+
+## Schedule Management
+You have direct access to the user's active schedules listed above.
+
+- **Recurring schedule**: Use [SCHEDULE:cron_expr:message] for repeating tasks
+  Example: "매일 9시에 알려줘" → [SCHEDULE:0 9 * * *:좋은 아침입니다! 오늘의 일정을 확인하세요.]
+- **One-time reminder**: Use [SCHEDULE_ONCE:minutes:message] for a single reminder after N minutes
+  Example: "3분 후에 알려줘" → [SCHEDULE_ONCE:3:알림입니다!]
+  Example: "1시간 후에 알려줘" → [SCHEDULE_ONCE:60:알림입니다!]
+- **Cancel schedule**: Use [CANCEL_SCHEDULE:schedule_id] with the exact id from the Active Schedules list
+  Example: User says "알림 취소해줘" → find matching schedule id and use [CANCEL_SCHEDULE:schedule_1234_abc]
+- When the user asks to cancel, show which schedule you're cancelling
+- When the user asks to list schedules, describe the Active Schedules above in natural language
+
+- Use the related past conversations to provide context-aware responses
 - Focus on helping the user with their immediate needs
 
 Please respond to the user's message:
@@ -204,19 +309,52 @@ Please respond to the user's message:
       log('info', `💾 Fact saved: ${key}=${value}`);
     }
 
-    // Schedule 추출 및 저장
+    // 반복 Schedule 추출 및 저장 + Scheduler에 즉시 등록
     const scheduleMatches = response.matchAll(/\[SCHEDULE:(.+?):(.+?)\]/g);
     for (const match of scheduleMatches) {
       const [, cronExpr, message] = match;
-      const scheduleId = `schedule_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-      await this.memory.saveSchedule(scheduleId, userId, cronExpr, message);
-      log('info', `⏰ Schedule saved: ${cronExpr}`);
+      if (this.scheduler) {
+        await this.scheduler.addSchedule(userId, cronExpr, message);
+        log('info', `⏰ Schedule registered: ${cronExpr}`);
+      } else {
+        const scheduleId = `schedule_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        await this.memory.saveSchedule(scheduleId, userId, cronExpr, message);
+        log('warn', `⏰ Schedule saved to DB only (no scheduler): ${cronExpr}`);
+      }
     }
 
-    // Fact와 Schedule 마커 제거
+    // 1회 Schedule 추출 및 등록
+    const onceMatches = response.matchAll(/\[SCHEDULE_ONCE:(\d+):(.+?)\]/g);
+    for (const match of onceMatches) {
+      const [, minutesStr, message] = match;
+      const minutes = parseInt(minutesStr, 10);
+      if (this.scheduler) {
+        this.scheduler.addOneTimeSchedule(userId, minutes, message);
+        log('info', `⏰ One-time schedule registered: ${minutes}min`);
+      } else {
+        log('warn', `⏰ One-time schedule ignored (no scheduler): ${minutes}min`);
+      }
+    }
+
+    // Schedule 취소 처리
+    const cancelMatches = response.matchAll(/\[CANCEL_SCHEDULE:(.+?)\]/g);
+    for (const match of cancelMatches) {
+      const [, scheduleId] = match;
+      if (this.scheduler) {
+        await this.scheduler.cancelSchedule(scheduleId);
+        log('info', `⏰ Schedule cancelled: ${scheduleId}`);
+      } else {
+        await this.memory.deactivateSchedule(scheduleId);
+        log('warn', `⏰ Schedule deactivated in DB only (no scheduler): ${scheduleId}`);
+      }
+    }
+
+    // 모든 마커 제거
     const cleanResponse = response
       .replace(/\[FACT:\w+:.+?\]/g, '')
-      .replace(/\[SCHEDULE:.+?:.+?\]/g, '')
+      .replace(/\[SCHEDULE:(.+?):(.+?)\]/g, '')
+      .replace(/\[SCHEDULE_ONCE:\d+:.+?\]/g, '')
+      .replace(/\[CANCEL_SCHEDULE:.+?\]/g, '')
       .trim();
 
     // Assistant 응답 저장

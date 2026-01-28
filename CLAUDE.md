@@ -2,6 +2,19 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Project Origin
+
+기존 AI는 **요청할 때만 반응**한다. 사용자가 원하는 것은 그 한계를 넘는 것이다:
+- 모든 대화와 정보를 **기억**하고
+- 필요한 시점에 **스스로 행동**하고 조언하며
+- Telegram/Slack 같은 채널을 통해 **능동적으로 알려주고 대화**하는 동반자
+
+쇼핑, 예약, 건강체크, 스케줄, 코딩, 투자 등 다양한 영역에서 스스로 판단하고 행동할 수 있는 **24시간 깨어있는 개인 AI 어시스턴트**를 목표로 한다.
+
+Moltbot(https://github.com/moltbot/moltbot) 프로젝트를 참고하여 뼈대를 구축했고, 친근한 이름으로 **마이클(Michael)**을 선택했다.
+
+원칙: **"복잡한 것보다 뼈대를 튼튼히"**
+
 ## Project Overview
 
 **마이클 (Michael)** is a 24/7 personal AI assistant that remembers everything and proactively helps users through Telegram messaging.
@@ -80,12 +93,36 @@ The agent parses special markers from Claude's responses:
 
 **File**: `src/brain/memory.ts`
 
-Uses **better-sqlite3** (synchronous API) with these tables:
+Uses **better-sqlite3** (synchronous API). The system uses **two separate SQLite database files**:
+
+#### Database File Separation
+
+| Database | Path | Purpose | Library |
+|----------|------|---------|---------|
+| **Main Memory DB** | `data/memory.db` | Core app data (users, messages, facts, schedules) | better-sqlite3 |
+| **Vector Index DB** | `data/memory-index.db` | Embeddings and vector search | node:sqlite + sqlite-vec |
+
+**Why separate files?**
+- Main DB uses `better-sqlite3` (synchronous, stable, production-ready)
+- Vector DB uses `node:sqlite` (Node.js 22+ built-in) for sqlite-vec extension compatibility
+- Isolates vector search failures from core functionality
+- Allows independent backup/migration of each database
+
+#### Michael Core Tables (memory.db)
 - `users`: User registry
 - `messages`: Conversation history
 - `facts`: Key-value facts about users
 - `schedules`: Cron-based scheduled tasks
 - `messages_fts`: FTS5 virtual table for full-text search
+
+#### Vector Search Tables (memory-index.db)
+Managed by `MemoryIndexManager` from `src/memory-new/`:
+- `meta`: System metadata (model, provider, chunk settings)
+- `files`: Indexed file tracking with hash for change detection
+- `chunks`: Chunked text with embeddings
+- `embedding_cache`: Embedding cache for performance
+- `memory_fts`: FTS5 for hybrid search (BM25 keyword matching)
+- `vec_chunks`: sqlite-vec virtual table for vector similarity search
 
 **Critical ordering bug fix**: When querying messages, ALWAYS use:
 ```typescript
@@ -93,6 +130,36 @@ ORDER BY timestamp DESC, id DESC  // id prevents same-timestamp collisions
 ```
 
 All database operations are synchronous - no async/await needed for Memory methods.
+
+### 2.1 Vector Search Integration (Moltbot)
+
+Michael integrates Moltbot's vector embedding search for semantic memory retrieval.
+
+**Key APIs:**
+```typescript
+// Initialize vector search engine
+await memory.initializeVectorSearch(config);
+
+// Index messages as embeddings
+await memory.syncMessagesToChunks(userId);
+
+// Semantic search (vector + FTS5 hybrid)
+const results = await memory.searchMessagesVector(userId, query, {
+  maxResults: 5,
+  minScore: 0.7,
+});
+```
+
+**Agent Integration:**
+Claude Agent automatically uses vector search when initialized:
+- Loads recent messages (last 5)
+- Finds semantically related past conversations (top 3)
+- Includes both in system prompt for context-aware responses
+
+**Files:**
+- `src/memory-new/manager.ts`: MemoryIndexManager (core)
+- `src/memory-new/config.ts`: Configuration types
+- `src/memory-new/embeddings.ts`: Embedding provider factory
 
 ### 3. Gateway Message Protocol
 
@@ -150,9 +217,26 @@ TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
 
 # Optional: Data directory
 DATA_DIR=./data
+
+# Vector Search Configuration
+EMBEDDING_PROVIDER=local  # Options: local, openai, gemini
+
+# For OpenAI embeddings
+# OPENAI_API_KEY=sk-...
+
+# For Gemini embeddings
+# GOOGLE_API_KEY=...
+
+# Debug options
+DEBUG_MEMORY_EMBEDDINGS=false
 ```
 
 **DO NOT SET `ANTHROPIC_API_KEY`** - this project uses Claude Code CLI, not the SDK.
+
+**Embedding Provider Options:**
+- `local`: Free, offline, uses node-llama-cpp (recommended for development)
+- `openai`: Better accuracy, requires API key
+- `gemini`: Free tier available, requires API key
 
 ## Testing Strategy
 
@@ -163,13 +247,18 @@ Each test file creates isolated instances:
 - Separate data directories
 
 ### Key Test Files
-- `memory.test.ts`: 16 tests covering CRUD, FTS5 search, edge cases
+- `memory.test.ts`: 26 tests covering CRUD, FTS5 search, vector search API, edge cases
+- `memory.integration.test.ts`: 12 tests for full vector search integration (7 skipped without `INTEGRATION_TESTS=true`)
 - `gateway.test.ts`: 8 tests for WebSocket routing and error handling
 - `cron.test.ts`: 9 tests for schedule management and cron validation
 
 ### Running Individual Tests
 ```bash
+# Unit tests
 pnpm vitest run src/brain/memory.test.ts
+
+# Integration tests (requires embedding provider)
+INTEGRATION_TESTS=true pnpm vitest run src/brain/memory.integration.test.ts
 ```
 
 ## Common Pitfalls
@@ -189,6 +278,7 @@ pnpm vitest run src/brain/memory.test.ts
 - [x] Phase 4: Telegram Channel (Telegraf)
 - [x] Phase 5: Scheduler (node-cron)
 - [x] Phase 6: Daemon deployment (launchd for macOS)
+- [x] Phase 7: Vector Search (Moltbot integration) - Semantic memory retrieval
 
 ## Code Style Notes
 

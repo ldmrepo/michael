@@ -37,3 +37,12 @@ Thumbs.db
 # Test
 coverage/
 .nyc_output/
+.test-temp/
+
+# Backup files
+*.bak*
+*.backup
+
+# Embedding model cache
+data/models/
+*.gguf

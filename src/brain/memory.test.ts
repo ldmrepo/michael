@@ -11,8 +11,8 @@ describe('Memory', () => {
     memory = new Memory(testDbPath);
   });
 
-  afterEach(() => {
-    memory.close();
+  afterEach(async () => {
+    await memory.close();
   });
 
   describe('Messages', () => {
@@ -192,6 +192,134 @@ describe('Memory', () => {
       await memory.saveMessage('user1', 'user', 'Test');
       const messages = await memory.getRecentMessages('user1', 10);
       expect(messages).toHaveLength(1);
+    });
+  });
+
+  describe('Vector Search', () => {
+    it('should throw error when vector search not initialized', async () => {
+      await expect(
+        memory.searchMessagesVector('user1', 'test query')
+      ).rejects.toThrow('Vector search not initialized');
+    });
+
+    it('should throw error when syncMessagesToChunks called without initialization', async () => {
+      await expect(memory.syncMessagesToChunks()).rejects.toThrow(
+        'Vector search not initialized'
+      );
+    });
+
+    // Note: Full vector search integration tests require:
+    // 1. Actual file system (not in-memory DB)
+    // 2. Embedding provider (local/OpenAI/Gemini)
+    // 3. sqlite-vec extension
+    // These are tested in the integration test suite (Task #7)
+  });
+});
+
+describe('Memory (with file-based DB)', () => {
+  let memory: Memory;
+  let testDir: string;
+  let testDbPath: string;
+
+  beforeEach(() => {
+    // Create temp directory for file-based tests
+    testDir = path.join(process.cwd(), '.test-temp', `test-${Date.now()}`);
+    fs.mkdirSync(testDir, { recursive: true });
+    testDbPath = path.join(testDir, 'memory.db');
+    memory = new Memory(testDbPath);
+  });
+
+  afterEach(async () => {
+    await memory.close();
+    // Clean up test directory
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  describe('Persistence', () => {
+    it('should persist messages across connections', async () => {
+      await memory.saveMessage('user1', 'user', 'Persistent message');
+      await memory.close();
+
+      // Reopen connection
+      memory = new Memory(testDbPath);
+      const messages = await memory.getRecentMessages('user1', 10);
+
+      expect(messages).toHaveLength(1);
+      expect(messages[0].content).toBe('Persistent message');
+    });
+
+    it('should persist facts across connections', async () => {
+      await memory.saveFact('user1', 'persistent_key', 'persistent_value');
+      await memory.close();
+
+      // Reopen connection
+      memory = new Memory(testDbPath);
+      const value = await memory.getFact('user1', 'persistent_key');
+
+      expect(value).toBe('persistent_value');
+    });
+
+    it('should persist schedules across connections', async () => {
+      await memory.saveSchedule('persistent_schedule', 'user1', '0 9 * * *', 'Persistent');
+      await memory.close();
+
+      // Reopen connection
+      memory = new Memory(testDbPath);
+      const schedule = await memory.getSchedule('persistent_schedule');
+
+      expect(schedule).not.toBeNull();
+      expect(schedule?.message).toBe('Persistent');
+    });
+  });
+
+  describe('FTS5 Search Edge Cases', () => {
+    it('should handle special characters in search', async () => {
+      await memory.saveMessage('user1', 'user', 'Test with special: @#$%');
+
+      // FTS5 should handle this gracefully (may return empty or match)
+      const results = await memory.searchMessages('user1', 'special');
+      expect(results.length).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should handle empty search results', async () => {
+      await memory.saveMessage('user1', 'user', 'Some content');
+
+      const results = await memory.searchMessages('user1', 'nonexistent');
+      expect(results).toHaveLength(0);
+    });
+
+    it('should handle Korean text search', async () => {
+      await memory.saveMessage('user1', 'user', '안녕하세요 마이클입니다');
+      await memory.saveMessage('user1', 'user', '오늘 날씨가 좋네요');
+
+      const results = await memory.searchMessages('user1', '안녕하세요');
+      expect(results.length).toBeGreaterThanOrEqual(1);
+      expect(results[0].content).toContain('안녕하세요');
+    });
+  });
+
+  describe('Data Integrity', () => {
+    it('should maintain referential integrity for messages', async () => {
+      // Save message without explicit user creation
+      await memory.saveMessage('new_user', 'user', 'First message');
+
+      // User should be auto-created
+      const messages = await memory.getRecentMessages('new_user', 10);
+      expect(messages).toHaveLength(1);
+    });
+
+    it('should handle concurrent message saves', async () => {
+      // Simulate concurrent saves
+      const promises = [];
+      for (let i = 0; i < 10; i++) {
+        promises.push(memory.saveMessage('user1', 'user', `Concurrent message ${i}`));
+      }
+      await Promise.all(promises);
+
+      const messages = await memory.getRecentMessages('user1', 20);
+      expect(messages).toHaveLength(10);
     });
   });
 });
