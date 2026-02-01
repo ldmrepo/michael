@@ -124,10 +124,10 @@ describe('A2A Server', () => {
     const response = await server.handleRequest(request);
     expect(response.error).toBeUndefined();
     expect(response.result).toBeDefined();
-    const result = response.result as { task: { id: string; status: string } };
+    const result = response.result as { task: { id: string; status: { state: string } } };
     expect(result.task.id).toBeDefined();
     // Task may be pending, working, or completed depending on timing
-    expect(['pending', 'working', 'completed']).toContain(result.task.status);
+    expect(['pending', 'working', 'completed']).toContain(result.task.status.state);
   });
 
   it('should handle tasks/get for non-existent task', async () => {

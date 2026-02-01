@@ -1,5 +1,5 @@
 /**
- * Telegram Adaptive Renderer Tests
+ * Telegram Adaptive Renderer Tests (v0.8 Standard)
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -10,7 +10,7 @@ import {
 } from './telegram-renderer.js';
 import { SurfaceUpdate, ComponentDefinition } from '../a2ui/types.js';
 
-describe('TelegramAdaptiveRenderer', () => {
+describe('TelegramAdaptiveRenderer (v0.8 Standard)', () => {
   let renderer: TelegramAdaptiveRenderer;
 
   beforeEach(() => {
@@ -22,19 +22,20 @@ describe('TelegramAdaptiveRenderer', () => {
   describe('Text Components', () => {
     it('should render h1 text as bold with double newline', () => {
       const surface: SurfaceUpdate = {
-        type: 'surfaceUpdate',
-        surfaceId: 'main',
-        components: [
-          {
-            id: 'title',
-            component: {
-              Text: {
-                text: { literalString: 'Hello World' },
-                usageHint: 'h1',
+        surfaceUpdate: {
+          surfaceId: 'main',
+          components: [
+            {
+              id: 'title',
+              component: {
+                Text: {
+                  text: { literalString: 'Hello World' },
+                  usageHint: 'h1',
+                },
               },
             },
-          },
-        ],
+          ],
+        },
       };
 
       const result = renderer.render(surface);
@@ -44,18 +45,19 @@ describe('TelegramAdaptiveRenderer', () => {
 
     it('should render body text as plain text', () => {
       const surface: SurfaceUpdate = {
-        type: 'surfaceUpdate',
-        surfaceId: 'main',
-        components: [
-          {
-            id: 'body',
-            component: {
-              Text: {
-                text: { literalString: 'Plain text content' },
+        surfaceUpdate: {
+          surfaceId: 'main',
+          components: [
+            {
+              id: 'body',
+              component: {
+                Text: {
+                  text: { literalString: 'Plain text content' },
+                },
               },
             },
-          },
-        ],
+          ],
+        },
       };
 
       const result = renderer.render(surface);
@@ -66,19 +68,20 @@ describe('TelegramAdaptiveRenderer', () => {
   describe('Button Components', () => {
     it('should render buttons as inline keyboard', () => {
       const surface: SurfaceUpdate = {
-        type: 'surfaceUpdate',
-        surfaceId: 'main',
-        components: [
-          {
-            id: 'btn1',
-            component: {
-              Button: {
-                label: { literalString: 'Click Me' },
-                action: { name: 'click_action' },
+        surfaceUpdate: {
+          surfaceId: 'main',
+          components: [
+            {
+              id: 'btn1',
+              component: {
+                Button: {
+                  label: { literalString: 'Click Me' },
+                  action: { name: 'click_action' },
+                },
               },
             },
-          },
-        ],
+          ],
+        },
       };
 
       const result = renderer.render(surface);
@@ -94,13 +97,14 @@ describe('TelegramAdaptiveRenderer', () => {
       });
 
       const surface: SurfaceUpdate = {
-        type: 'surfaceUpdate',
-        surfaceId: 'main',
-        components: [
-          { id: 'btn1', component: { Button: { label: { literalString: 'Btn1' }, action: { name: 'a1' } } } },
-          { id: 'btn2', component: { Button: { label: { literalString: 'Btn2' }, action: { name: 'a2' } } } },
-          { id: 'btn3', component: { Button: { label: { literalString: 'Btn3' }, action: { name: 'a3' } } } },
-        ],
+        surfaceUpdate: {
+          surfaceId: 'main',
+          components: [
+            { id: 'btn1', component: { Button: { label: { literalString: 'Btn1' }, action: { name: 'a1' } } } },
+            { id: 'btn2', component: { Button: { label: { literalString: 'Btn2' }, action: { name: 'a2' } } } },
+            { id: 'btn3', component: { Button: { label: { literalString: 'Btn3' }, action: { name: 'a3' } } } },
+          ],
+        },
       };
 
       const result = customRenderer.render(surface);
@@ -113,19 +117,20 @@ describe('TelegramAdaptiveRenderer', () => {
   describe('Card Components', () => {
     it('should render card with title and divider', () => {
       const surface: SurfaceUpdate = {
-        type: 'surfaceUpdate',
-        surfaceId: 'main',
-        components: [
-          {
-            id: 'card1',
-            component: {
-              Card: {
-                title: { literalString: 'My Card' },
-                children: { explicitList: [] },
+        surfaceUpdate: {
+          surfaceId: 'main',
+          components: [
+            {
+              id: 'card1',
+              component: {
+                Card: {
+                  title: { literalString: 'My Card' },
+                  children: { explicitList: [] },
+                },
               },
             },
-          },
-        ],
+          ],
+        },
       };
 
       const result = renderer.render(surface);
@@ -135,20 +140,21 @@ describe('TelegramAdaptiveRenderer', () => {
 
     it('should render card with subtitle', () => {
       const surface: SurfaceUpdate = {
-        type: 'surfaceUpdate',
-        surfaceId: 'main',
-        components: [
-          {
-            id: 'card1',
-            component: {
-              Card: {
-                title: { literalString: 'Card Title' },
-                subtitle: { literalString: 'Card Subtitle' },
-                children: { explicitList: [] },
+        surfaceUpdate: {
+          surfaceId: 'main',
+          components: [
+            {
+              id: 'card1',
+              component: {
+                Card: {
+                  title: { literalString: 'Card Title' },
+                  subtitle: { literalString: 'Card Subtitle' },
+                  children: { explicitList: [] },
+                },
               },
             },
-          },
-        ],
+          ],
+        },
       };
 
       const result = renderer.render(surface);
@@ -160,21 +166,22 @@ describe('TelegramAdaptiveRenderer', () => {
   describe('List Components', () => {
     it('should render bullet list', () => {
       const surface: SurfaceUpdate = {
-        type: 'surfaceUpdate',
-        surfaceId: 'main',
-        components: [
-          {
-            id: 'list1',
-            component: {
-              List: {
-                children: { explicitList: ['item1', 'item2'] },
-                style: 'bullet',
+        surfaceUpdate: {
+          surfaceId: 'main',
+          components: [
+            {
+              id: 'list1',
+              component: {
+                List: {
+                  children: { explicitList: ['item1', 'item2'] },
+                  style: 'bullet',
+                },
               },
             },
-          },
-          { id: 'item1', component: { ListItem: { content: { literalString: 'First' } } } },
-          { id: 'item2', component: { ListItem: { content: { literalString: 'Second' } } } },
-        ],
+            { id: 'item1', component: { ListItem: { content: { literalString: 'First' } } } },
+            { id: 'item2', component: { ListItem: { content: { literalString: 'Second' } } } },
+          ],
+        },
       };
 
       const result = renderer.render(surface);
@@ -184,21 +191,22 @@ describe('TelegramAdaptiveRenderer', () => {
 
     it('should render numbered list', () => {
       const surface: SurfaceUpdate = {
-        type: 'surfaceUpdate',
-        surfaceId: 'main',
-        components: [
-          {
-            id: 'list1',
-            component: {
-              List: {
-                children: { explicitList: ['item1', 'item2'] },
-                style: 'number',
+        surfaceUpdate: {
+          surfaceId: 'main',
+          components: [
+            {
+              id: 'list1',
+              component: {
+                List: {
+                  children: { explicitList: ['item1', 'item2'] },
+                  style: 'number',
+                },
               },
             },
-          },
-          { id: 'item1', component: { ListItem: { content: { literalString: 'First' } } } },
-          { id: 'item2', component: { ListItem: { content: { literalString: 'Second' } } } },
-        ],
+            { id: 'item1', component: { ListItem: { content: { literalString: 'First' } } } },
+            { id: 'item2', component: { ListItem: { content: { literalString: 'Second' } } } },
+          ],
+        },
       };
 
       const result = renderer.render(surface);
@@ -210,19 +218,20 @@ describe('TelegramAdaptiveRenderer', () => {
   describe('Form Input Detection', () => {
     it('should detect TextField and require Web App', () => {
       const surface: SurfaceUpdate = {
-        type: 'surfaceUpdate',
-        surfaceId: 'main',
-        components: [
-          {
-            id: 'input1',
-            component: {
-              TextField: {
-                label: { literalString: 'Name' },
-                value: { path: '/form/name' },
+        surfaceUpdate: {
+          surfaceId: 'main',
+          components: [
+            {
+              id: 'input1',
+              component: {
+                TextField: {
+                  label: { literalString: 'Name' },
+                  value: { path: '/form/name' },
+                },
               },
             },
-          },
-        ],
+          ],
+        },
       };
 
       expect(requiresWebApp(surface)).toBe(true);
@@ -234,19 +243,20 @@ describe('TelegramAdaptiveRenderer', () => {
 
     it('should detect DateTimeInput and require Web App', () => {
       const surface: SurfaceUpdate = {
-        type: 'surfaceUpdate',
-        surfaceId: 'main',
-        components: [
-          {
-            id: 'date1',
-            component: {
-              DateTimeInput: {
-                label: { literalString: 'Date' },
-                value: { path: '/form/date' },
+        surfaceUpdate: {
+          surfaceId: 'main',
+          components: [
+            {
+              id: 'date1',
+              component: {
+                DateTimeInput: {
+                  label: { literalString: 'Date' },
+                  value: { path: '/form/date' },
+                },
               },
             },
-          },
-        ],
+          ],
+        },
       };
 
       expect(requiresWebApp(surface)).toBe(true);
@@ -254,12 +264,13 @@ describe('TelegramAdaptiveRenderer', () => {
 
     it('should not require Web App for simple components', () => {
       const surface: SurfaceUpdate = {
-        type: 'surfaceUpdate',
-        surfaceId: 'main',
-        components: [
-          { id: 't1', component: { Text: { text: { literalString: 'Hello' } } } },
-          { id: 'b1', component: { Button: { label: { literalString: 'Click' }, action: { name: 'click' } } } },
-        ],
+        surfaceUpdate: {
+          surfaceId: 'main',
+          components: [
+            { id: 't1', component: { Text: { text: { literalString: 'Hello' } } } },
+            { id: 'b1', component: { Button: { label: { literalString: 'Click' }, action: { name: 'click' } } } },
+          ],
+        },
       };
 
       expect(requiresWebApp(surface)).toBe(false);
@@ -272,18 +283,19 @@ describe('TelegramAdaptiveRenderer', () => {
   describe('Data Model Resolution', () => {
     it('should resolve path references from data model', () => {
       const surface: SurfaceUpdate = {
-        type: 'surfaceUpdate',
-        surfaceId: 'main',
-        components: [
-          {
-            id: 't1',
-            component: {
-              Text: {
-                text: { path: '/user/name' },
+        surfaceUpdate: {
+          surfaceId: 'main',
+          components: [
+            {
+              id: 't1',
+              component: {
+                Text: {
+                  text: { path: '/user/name' },
+                },
               },
             },
-          },
-        ],
+          ],
+        },
       };
 
       const dataModel = {
@@ -306,19 +318,20 @@ describe('TelegramAdaptiveRenderer', () => {
       };
 
       const surface: SurfaceUpdate = {
-        type: 'surfaceUpdate',
-        surfaceId: 'main',
-        components: [
-          {
-            id: 'btn',
-            component: {
-              Button: {
-                label: { literalString: 'Submit' },
-                action,
+        surfaceUpdate: {
+          surfaceId: 'main',
+          components: [
+            {
+              id: 'btn',
+              component: {
+                Button: {
+                  label: { literalString: 'Submit' },
+                  action,
+                },
               },
             },
-          },
-        ],
+          ],
+        },
       };
 
       const result = renderer.render(surface);
@@ -333,11 +346,10 @@ describe('TelegramAdaptiveRenderer', () => {
   describe('Divider and Spacer', () => {
     it('should render divider as horizontal line', () => {
       const surface: SurfaceUpdate = {
-        type: 'surfaceUpdate',
-        surfaceId: 'main',
-        components: [
-          { id: 'd1', component: { Divider: {} } },
-        ],
+        surfaceUpdate: {
+          surfaceId: 'main',
+          components: [{ id: 'd1', component: { Divider: {} } }],
+        },
       };
 
       const result = renderer.render(surface);
@@ -346,13 +358,14 @@ describe('TelegramAdaptiveRenderer', () => {
 
     it('should render spacer as newline', () => {
       const surface: SurfaceUpdate = {
-        type: 'surfaceUpdate',
-        surfaceId: 'main',
-        components: [
-          { id: 't1', component: { Text: { text: { literalString: 'Before' } } } },
-          { id: 's1', component: { Spacer: { height: 16 } } },
-          { id: 't2', component: { Text: { text: { literalString: 'After' } } } },
-        ],
+        surfaceUpdate: {
+          surfaceId: 'main',
+          components: [
+            { id: 't1', component: { Text: { text: { literalString: 'Before' } } } },
+            { id: 's1', component: { Spacer: { height: 16 } } },
+            { id: 't2', component: { Text: { text: { literalString: 'After' } } } },
+          ],
+        },
       };
 
       const result = renderer.render(surface);
@@ -362,13 +375,14 @@ describe('TelegramAdaptiveRenderer', () => {
   });
 });
 
-describe('InMemorySessionStore', () => {
+describe('InMemorySessionStore (v0.8 Standard)', () => {
   it('should store and retrieve sessions', () => {
     const store = new InMemorySessionStore();
     const surface: SurfaceUpdate = {
-      type: 'surfaceUpdate',
-      surfaceId: 'main',
-      components: [],
+      surfaceUpdate: {
+        surfaceId: 'main',
+        components: [],
+      },
     };
 
     store.set('session1', surface);
@@ -383,9 +397,10 @@ describe('InMemorySessionStore', () => {
   it('should delete sessions', () => {
     const store = new InMemorySessionStore();
     const surface: SurfaceUpdate = {
-      type: 'surfaceUpdate',
-      surfaceId: 'main',
-      components: [],
+      surfaceUpdate: {
+        surfaceId: 'main',
+        components: [],
+      },
     };
 
     store.set('session1', surface);

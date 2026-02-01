@@ -293,7 +293,7 @@ export class A2AOrchestrator {
             const result = await this.client.waitForTask(agent.url, agentTask.id);
 
             step.result = result;
-            step.status = result.status === 'completed' ? 'completed' : 'failed';
+            step.status = result.status.state === 'completed' ? 'completed' : 'failed';
             if (result.error) {
               step.error = result.error;
             }
@@ -324,10 +324,13 @@ export class A2AOrchestrator {
 
     for (const depId of step.dependsOn) {
       const depResult = task.results.get(depId);
-      if (depResult?.output) {
-        const text = depResult.output.parts
-          .filter((p) => p.type === 'text')
-          .map((p) => (p as { text: string }).text)
+      // Get last assistant message from history
+      const history = depResult?.history || [];
+      const lastAssistantMessage = history.filter((m: { role: string }) => m.role === 'assistant').pop();
+      if (lastAssistantMessage) {
+        const text = lastAssistantMessage.parts
+          .filter((p: { type: string }) => p.type === 'text')
+          .map((p: { type: string; text?: string }) => p.text || '')
           .join('\n');
         context[depId] = text;
       }

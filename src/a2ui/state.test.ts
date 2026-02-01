@@ -7,7 +7,7 @@ import {
 } from './state.js';
 import { SurfaceUpdate, DataModelUpdate, BeginRendering } from './types.js';
 
-describe('A2UIStateManager', () => {
+describe('A2UIStateManager (v0.8 Standard)', () => {
   let state: A2UIStateManager;
 
   beforeEach(() => {
@@ -16,23 +16,24 @@ describe('A2UIStateManager', () => {
 
   describe('Surface Management', () => {
     const surfaceUpdate: SurfaceUpdate = {
-      type: 'surfaceUpdate',
-      surfaceId: 'main',
-      components: [
-        {
-          id: 'text-1',
-          component: { Text: { text: { literalString: 'Hello' } } },
-        },
-        {
-          id: 'btn-1',
-          component: {
-            Button: {
-              label: { literalString: 'Click' },
-              action: { name: 'click' },
+      surfaceUpdate: {
+        surfaceId: 'main',
+        components: [
+          {
+            id: 'text-1',
+            component: { Text: { text: { literalString: 'Hello' } } },
+          },
+          {
+            id: 'btn-1',
+            component: {
+              Button: {
+                label: { literalString: 'Click' },
+                action: { name: 'click' },
+              },
             },
           },
-        },
-      ],
+        ],
+      },
     };
 
     it('should process surface update', () => {
@@ -96,9 +97,10 @@ describe('A2UIStateManager', () => {
     it('should clear all surfaces', () => {
       state.processMessage(surfaceUpdate);
       state.processMessage({
-        type: 'surfaceUpdate',
-        surfaceId: 'sidebar',
-        components: [],
+        surfaceUpdate: {
+          surfaceId: 'sidebar',
+          components: [],
+        },
       });
 
       state.clearAllSurfaces();
@@ -112,9 +114,10 @@ describe('A2UIStateManager', () => {
 
       state.processMessage(surfaceUpdate);
       state.processMessage({
-        type: 'beginRendering',
-        surfaceId: 'main',
-        root: 'text-1',
+        beginRendering: {
+          surfaceId: 'main',
+          root: 'text-1',
+        },
       });
 
       expect(onBeginRendering).toHaveBeenCalledWith('main', 'text-1');
@@ -126,11 +129,12 @@ describe('A2UIStateManager', () => {
 
   describe('Data Model Management', () => {
     const dataUpdate: DataModelUpdate = {
-      type: 'dataModelUpdate',
-      modelId: 'booking',
-      data: {
-        date: '2026-03-15',
-        destination: 'Tokyo',
+      dataModelUpdate: {
+        surfaceId: 'booking',
+        contents: [
+          { key: 'date', valueString: '2026-03-15' },
+          { key: 'destination', valueString: 'Tokyo' },
+        ],
       },
     };
 
@@ -139,7 +143,7 @@ describe('A2UIStateManager', () => {
 
       const model = state.getDataModel('booking');
       expect(model).toBeDefined();
-      expect(model?.modelId).toBe('booking');
+      expect(model?.surfaceId).toBe('booking');
       expect(model?.data.date).toBe('2026-03-15');
       expect(model?.data.destination).toBe('Tokyo');
     });
@@ -147,9 +151,10 @@ describe('A2UIStateManager', () => {
     it('should merge data model updates', () => {
       state.processMessage(dataUpdate);
       state.processMessage({
-        type: 'dataModelUpdate',
-        modelId: 'booking',
-        data: { passengers: 2 },
+        dataModelUpdate: {
+          surfaceId: 'booking',
+          contents: [{ key: 'passengers', valueNumber: 2 }],
+        },
       });
 
       const model = state.getDataModel('booking');
@@ -209,9 +214,10 @@ describe('A2UIStateManager', () => {
     it('should clear all data models', () => {
       state.processMessage(dataUpdate);
       state.processMessage({
-        type: 'dataModelUpdate',
-        modelId: 'user',
-        data: { name: 'John' },
+        dataModelUpdate: {
+          surfaceId: 'user',
+          contents: [{ key: 'name', valueString: 'John' }],
+        },
       });
 
       state.clearAllDataModels();
@@ -223,14 +229,22 @@ describe('A2UIStateManager', () => {
   describe('Value Resolution', () => {
     beforeEach(() => {
       state.processMessage({
-        type: 'dataModelUpdate',
-        modelId: 'booking',
-        data: { date: '2026-03-15', passenger: { name: 'John' } },
+        dataModelUpdate: {
+          surfaceId: 'booking',
+          contents: [
+            { key: 'date', valueString: '2026-03-15' },
+            {
+              key: 'passenger',
+              valueMap: [{ key: 'name', valueString: 'John' }],
+            },
+          ],
+        },
       });
       state.processMessage({
-        type: 'dataModelUpdate',
-        modelId: 'user',
-        data: { email: 'john@example.com' },
+        dataModelUpdate: {
+          surfaceId: 'user',
+          contents: [{ key: 'email', valueString: 'john@example.com' }],
+        },
       });
     });
 
@@ -258,13 +272,14 @@ describe('A2UIStateManager', () => {
   describe('Children Resolution', () => {
     beforeEach(() => {
       state.processMessage({
-        type: 'surfaceUpdate',
-        surfaceId: 'main',
-        components: [
-          { id: 'child-1', component: { Text: { text: { literalString: 'A' } } } },
-          { id: 'child-2', component: { Text: { text: { literalString: 'B' } } } },
-          { id: 'child-3', component: { Text: { text: { literalString: 'C' } } } },
-        ],
+        surfaceUpdate: {
+          surfaceId: 'main',
+          components: [
+            { id: 'child-1', component: { Text: { text: { literalString: 'A' } } } },
+            { id: 'child-2', component: { Text: { text: { literalString: 'B' } } } },
+            { id: 'child-3', component: { Text: { text: { literalString: 'C' } } } },
+          ],
+        },
       });
     });
 
@@ -302,20 +317,23 @@ describe('A2UIStateManager', () => {
     it('should process multiple messages', () => {
       state.processMessages([
         {
-          type: 'surfaceUpdate',
-          surfaceId: 'main',
-          components: [
-            { id: 'text-1', component: { Text: { text: { literalString: 'Hi' } } } },
-          ],
+          surfaceUpdate: {
+            surfaceId: 'main',
+            components: [
+              { id: 'text-1', component: { Text: { text: { literalString: 'Hi' } } } },
+            ],
+          },
         },
         {
-          type: 'dataModelUpdate',
-          modelId: 'form',
-          data: { name: 'John' },
+          dataModelUpdate: {
+            surfaceId: 'form',
+            contents: [{ key: 'name', valueString: 'John' }],
+          },
         },
         {
-          type: 'beginRendering',
-          surfaceId: 'main',
+          beginRendering: {
+            surfaceId: 'main',
+          },
         },
       ]);
 
@@ -327,14 +345,16 @@ describe('A2UIStateManager', () => {
   describe('Reset', () => {
     it('should clear all state', () => {
       state.processMessage({
-        type: 'surfaceUpdate',
-        surfaceId: 'main',
-        components: [],
+        surfaceUpdate: {
+          surfaceId: 'main',
+          components: [],
+        },
       });
       state.processMessage({
-        type: 'dataModelUpdate',
-        modelId: 'booking',
-        data: {},
+        dataModelUpdate: {
+          surfaceId: 'booking',
+          contents: [],
+        },
       });
 
       state.reset();

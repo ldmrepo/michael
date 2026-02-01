@@ -251,13 +251,99 @@ export function hasA2UIData(event: AGUIEvent): boolean {
 }
 
 /**
+ * Legacy A2UI message format (for backward compatibility)
+ */
+interface LegacyA2UIMessage {
+  type: 'surfaceUpdate' | 'dataModelUpdate' | 'beginRendering';
+  surfaceId?: string;
+  components?: Array<{ id: string; component: Record<string, any> }>;
+  root?: string;
+  catalogId?: string;
+  modelId?: string;
+  data?: Record<string, any>;
+}
+
+/**
+ * Check if data is in legacy format
+ */
+function isLegacyFormat(data: unknown): data is LegacyA2UIMessage {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    'type' in data &&
+    (data as LegacyA2UIMessage).type !== undefined
+  );
+}
+
+/**
+ * Convert legacy format to v0.8 standard format
+ */
+function convertLegacyToStandard(legacy: LegacyA2UIMessage): A2UIMessage | null {
+  switch (legacy.type) {
+    case 'surfaceUpdate':
+      return {
+        surfaceUpdate: {
+          surfaceId: legacy.surfaceId || 'main',
+          components: (legacy.components || []).map((c) => ({
+            id: c.id,
+            component: c.component,
+          })),
+        },
+      };
+    case 'beginRendering':
+      return {
+        beginRendering: {
+          surfaceId: legacy.surfaceId || 'main',
+          root: legacy.root || '',
+          catalogId: legacy.catalogId,
+        },
+      };
+    case 'dataModelUpdate':
+      // Legacy format used modelId and data, convert to v0.8 surfaceId and contents
+      const contents = Object.entries(legacy.data || {}).map(([key, value]) => {
+        if (typeof value === 'string') return { key, valueString: value };
+        if (typeof value === 'number') return { key, valueNumber: value };
+        if (typeof value === 'boolean') return { key, valueBoolean: value };
+        if (Array.isArray(value)) return { key, valueList: value };
+        if (typeof value === 'object') return { key, valueMap: value };
+        return { key, valueString: String(value) };
+      });
+      return {
+        dataModelUpdate: {
+          surfaceId: legacy.modelId || legacy.surfaceId || 'main',
+          contents,
+        },
+      };
+    default:
+      return null;
+  }
+}
+
+/**
  * Extract A2UI message from a TOOL_CALL_RESULT event
+ * Supports both v0.8 standard format and legacy format for backward compatibility
  */
 export function extractA2UIMessage(event: AGUIEvent): A2UIMessage | null {
   if (!hasA2UIData(event)) {
     return null;
   }
-  return (event as ToolCallResultEvent).content.data as A2UIMessage;
+
+  const data = (event as ToolCallResultEvent).content.data;
+
+  // v0.8 standard format: { surfaceUpdate: {...} }, { beginRendering: {...} }, etc.
+  if (typeof data === 'object' && data !== null) {
+    if ('surfaceUpdate' in data) return data as A2UIMessage;
+    if ('beginRendering' in data) return data as A2UIMessage;
+    if ('dataModelUpdate' in data) return data as A2UIMessage;
+    if ('deleteSurface' in data) return data as A2UIMessage;
+
+    // Legacy format: { type: 'surfaceUpdate', ... }
+    if (isLegacyFormat(data)) {
+      return convertLegacyToStandard(data);
+    }
+  }
+
+  return null;
 }
 
 /**

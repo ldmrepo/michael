@@ -19,9 +19,20 @@ import {
   TasksCancelResult,
   TasksListParams,
   TasksListResult,
+  PushNotificationConfig,
+  PushNotificationConfigCreateParams,
+  PushNotificationConfigCreateResult,
+  PushNotificationConfigGetParams,
+  PushNotificationConfigGetResult,
+  PushNotificationConfigListParams,
+  PushNotificationConfigListResult,
+  PushNotificationConfigDeleteParams,
+  PushNotificationConfigDeleteResult,
+  TaskSubscribeEvent,
   createJSONRPCResponse,
   createJSONRPCError,
   JSON_RPC_ERRORS,
+  generateId,
 } from './types.js';
 import { getMichaelAgentCard } from './agent-card.js';
 
@@ -82,11 +93,20 @@ export interface TaskHandler {
  * const response = await server.handleRequest(jsonRpcRequest);
  * ```
  */
+/**
+ * Subscriber callback for task events
+ */
+export type TaskSubscriber = (event: TaskSubscribeEvent) => void;
+
 export class A2AServer {
   private config: Required<A2AServerConfig>;
   private tasks = new Map<string, Task>();
   private handler: TaskHandler | null = null;
   private cleanupInterval: NodeJS.Timeout | null = null;
+  /** Push notification configs keyed by taskId:configId */
+  private pushNotificationConfigs = new Map<string, PushNotificationConfig>();
+  /** Task subscribers keyed by taskId */
+  private taskSubscribers = new Map<string, Set<TaskSubscriber>>();
 
   constructor(config: A2AServerConfig = {}) {
     this.config = {
@@ -133,6 +153,19 @@ export class A2AServer {
         case 'tasks/list':
           return this.handleTasksList(id, params as TasksListParams);
 
+        // Push notification config methods
+        case 'tasks/pushNotificationConfig/create':
+          return this.handlePushNotificationConfigCreate(id, params as unknown as PushNotificationConfigCreateParams);
+
+        case 'tasks/pushNotificationConfig/get':
+          return this.handlePushNotificationConfigGet(id, params as unknown as PushNotificationConfigGetParams);
+
+        case 'tasks/pushNotificationConfig/list':
+          return this.handlePushNotificationConfigList(id, params as unknown as PushNotificationConfigListParams);
+
+        case 'tasks/pushNotificationConfig/delete':
+          return this.handlePushNotificationConfigDelete(id, params as unknown as PushNotificationConfigDeleteParams);
+
         default:
           return createJSONRPCError(
             id,
@@ -175,7 +208,7 @@ export class A2AServer {
 
     // Check task limit
     const workingTasks = Array.from(this.tasks.values()).filter(
-      (t) => t.status === 'pending' || t.status === 'working'
+      (t) => t.status.state === 'pending' || t.status.state === 'working'
     );
     if (workingTasks.length >= this.config.maxConcurrentTasks) {
       return createJSONRPCError(
@@ -248,9 +281,15 @@ export class A2AServer {
     }
 
     // Only cancel pending or working tasks
-    if (task.status === 'pending' || task.status === 'working') {
-      task.status = 'cancelled';
-      task.updatedAt = new Date().toISOString();
+    if (task.status.state === 'pending' || task.status.state === 'working') {
+      const now = new Date().toISOString();
+      task.status = { state: 'cancelled', timestamp: now };
+      task.updatedAt = now;
+      this.notifyTaskSubscribers(task.id, {
+        type: 'statusUpdate',
+        taskId: task.id,
+        status: task.status,
+      });
     }
 
     const result: TasksCancelResult = { task };
@@ -268,7 +307,7 @@ export class A2AServer {
 
     // Filter by status
     if (params.status) {
-      tasks = tasks.filter((t) => t.status === params.status);
+      tasks = tasks.filter((t) => t.status.state === params.status);
     }
 
     // Sort by creation time (newest first)
@@ -288,17 +327,22 @@ export class A2AServer {
   }
 
   /**
-   * Create a new task
+   * Create a new task (v0.3.0 standard)
    */
   private createTask(
     message: A2AMessage,
-    metadata?: Record<string, unknown>
+    metadata?: Record<string, unknown>,
+    contextId?: string
   ): Task {
     const now = new Date().toISOString();
     const task: Task = {
-      id: this.generateTaskId(),
-      status: 'pending',
-      input: message,
+      id: generateId('task'),
+      contextId,
+      status: {
+        state: 'pending',
+        timestamp: now,
+      },
+      history: [message],
       createdAt: now,
       updatedAt: now,
       metadata,
@@ -311,36 +355,72 @@ export class A2AServer {
   }
 
   /**
-   * Process a task
+   * Process a task (v0.3.0 standard)
    */
   private async processTask(task: Task): Promise<void> {
     if (!this.handler) {
-      task.status = 'failed';
+      const now = new Date().toISOString();
+      task.status = { state: 'failed', timestamp: now, message: 'No handler configured' };
       task.error = 'No handler configured';
-      task.updatedAt = new Date().toISOString();
+      task.updatedAt = now;
+      this.notifyTaskSubscribers(task.id, {
+        type: 'statusUpdate',
+        taskId: task.id,
+        status: task.status,
+      });
       return;
     }
 
     try {
-      task.status = 'working';
-      task.updatedAt = new Date().toISOString();
+      let now = new Date().toISOString();
+      task.status = { state: 'working', timestamp: now };
+      task.updatedAt = now;
+      this.notifyTaskSubscribers(task.id, {
+        type: 'statusUpdate',
+        taskId: task.id,
+        status: task.status,
+      });
 
       log('debug', `🔄 Processing task: ${task.id}`);
 
-      const response = await this.handler.processMessage(
-        task.input,
-        task.metadata
-      );
+      // Get input from history
+      const input = task.history?.[0];
+      if (!input) {
+        throw new Error('No input message in task history');
+      }
 
-      task.output = response;
-      task.status = 'completed';
-      task.updatedAt = new Date().toISOString();
+      const response = await this.handler.processMessage(input, task.metadata);
+
+      now = new Date().toISOString();
+      task.history = [...(task.history || []), response];
+      task.status = { state: 'completed', timestamp: now };
+      task.updatedAt = now;
+
+      // Notify subscribers
+      this.notifyTaskSubscribers(task.id, {
+        type: 'message',
+        taskId: task.id,
+        message: response,
+      });
+      this.notifyTaskSubscribers(task.id, {
+        type: 'statusUpdate',
+        taskId: task.id,
+        status: task.status,
+      });
 
       log('debug', `✅ Task completed: ${task.id}`);
     } catch (error) {
-      task.status = 'failed';
-      task.error = error instanceof Error ? error.message : String(error);
-      task.updatedAt = new Date().toISOString();
+      const now = new Date().toISOString();
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      task.status = { state: 'failed', timestamp: now, message: errorMessage };
+      task.error = errorMessage;
+      task.updatedAt = now;
+
+      this.notifyTaskSubscribers(task.id, {
+        type: 'statusUpdate',
+        taskId: task.id,
+        status: task.status,
+      });
 
       log('error', `❌ Task failed: ${task.id} - ${task.error}`);
     }
@@ -360,11 +440,164 @@ export class A2AServer {
     return this.tasks.get(taskId);
   }
 
+  // --- Push Notification Config Methods ---
+
   /**
-   * Generate unique task ID
+   * Handle tasks/pushNotificationConfig/create
    */
-  private generateTaskId(): string {
-    return `task_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  private handlePushNotificationConfigCreate(
+    id: string | number,
+    params: PushNotificationConfigCreateParams
+  ): JSONRPCResponse {
+    const task = this.tasks.get(params.taskId);
+    if (!task) {
+      return createJSONRPCError(id, JSON_RPC_ERRORS.TASK_NOT_FOUND, `Task not found: ${params.taskId}`);
+    }
+
+    const config: PushNotificationConfig = {
+      id: generateId('pnc'),
+      taskId: params.taskId,
+      url: params.url,
+      authentication: params.authentication,
+      events: params.events || ['statusUpdate', 'artifactUpdate', 'message'],
+      createdAt: new Date().toISOString(),
+    };
+
+    this.pushNotificationConfigs.set(`${params.taskId}:${config.id}`, config);
+    log('debug', `📌 Created push notification config: ${config.id} for task ${params.taskId}`);
+
+    const result: PushNotificationConfigCreateResult = { config };
+    return createJSONRPCResponse(id, result);
+  }
+
+  /**
+   * Handle tasks/pushNotificationConfig/get
+   */
+  private handlePushNotificationConfigGet(
+    id: string | number,
+    params: PushNotificationConfigGetParams
+  ): JSONRPCResponse {
+    const config = this.pushNotificationConfigs.get(`${params.taskId}:${params.configId}`);
+    if (!config) {
+      return createJSONRPCError(id, JSON_RPC_ERRORS.CONFIG_NOT_FOUND, 'Push notification config not found');
+    }
+
+    const result: PushNotificationConfigGetResult = { config };
+    return createJSONRPCResponse(id, result);
+  }
+
+  /**
+   * Handle tasks/pushNotificationConfig/list
+   */
+  private handlePushNotificationConfigList(
+    id: string | number,
+    params: PushNotificationConfigListParams
+  ): JSONRPCResponse {
+    const configs: PushNotificationConfig[] = [];
+    for (const [key, config] of this.pushNotificationConfigs) {
+      if (key.startsWith(`${params.taskId}:`)) {
+        configs.push(config);
+      }
+    }
+
+    const result: PushNotificationConfigListResult = { configs };
+    return createJSONRPCResponse(id, result);
+  }
+
+  /**
+   * Handle tasks/pushNotificationConfig/delete
+   */
+  private handlePushNotificationConfigDelete(
+    id: string | number,
+    params: PushNotificationConfigDeleteParams
+  ): JSONRPCResponse {
+    const key = `${params.taskId}:${params.configId}`;
+    const exists = this.pushNotificationConfigs.has(key);
+    if (exists) {
+      this.pushNotificationConfigs.delete(key);
+      log('debug', `🗑️ Deleted push notification config: ${params.configId}`);
+    }
+
+    const result: PushNotificationConfigDeleteResult = { success: exists };
+    return createJSONRPCResponse(id, result);
+  }
+
+  // --- Task Subscription Methods ---
+
+  /**
+   * Subscribe to task updates (for SSE streaming)
+   */
+  subscribeToTask(taskId: string, callback: TaskSubscriber): () => void {
+    if (!this.taskSubscribers.has(taskId)) {
+      this.taskSubscribers.set(taskId, new Set());
+    }
+    this.taskSubscribers.get(taskId)!.add(callback);
+    log('debug', `📡 Subscribed to task: ${taskId}`);
+
+    // Return unsubscribe function
+    return () => {
+      const subscribers = this.taskSubscribers.get(taskId);
+      if (subscribers) {
+        subscribers.delete(callback);
+        if (subscribers.size === 0) {
+          this.taskSubscribers.delete(taskId);
+        }
+      }
+      log('debug', `📡 Unsubscribed from task: ${taskId}`);
+    };
+  }
+
+  /**
+   * Notify all subscribers of a task event
+   */
+  private notifyTaskSubscribers(taskId: string, event: TaskSubscribeEvent): void {
+    // Notify in-memory subscribers
+    const subscribers = this.taskSubscribers.get(taskId);
+    if (subscribers) {
+      for (const callback of subscribers) {
+        try {
+          callback(event);
+        } catch (error) {
+          log('error', `Error notifying task subscriber: ${error}`);
+        }
+      }
+    }
+
+    // Send push notifications
+    this.sendPushNotifications(taskId, event);
+  }
+
+  /**
+   * Send push notifications for a task event
+   */
+  private async sendPushNotifications(taskId: string, event: TaskSubscribeEvent): Promise<void> {
+    for (const [key, config] of this.pushNotificationConfigs) {
+      if (!key.startsWith(`${taskId}:`)) continue;
+      if (config.events && !config.events.includes(event.type)) continue;
+
+      try {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+
+        if (config.authentication) {
+          if (config.authentication.type === 'bearer' && config.authentication.token) {
+            headers['Authorization'] = `Bearer ${config.authentication.token}`;
+          } else if (config.authentication.type === 'apiKey' && config.authentication.token) {
+            headers[config.authentication.headerName || 'X-API-Key'] = config.authentication.token;
+          }
+        }
+
+        await fetch(config.url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(event),
+        });
+        log('debug', `📤 Sent push notification to ${config.url}`);
+      } catch (error) {
+        log('error', `Failed to send push notification: ${error}`);
+      }
+    }
   }
 
   /**
@@ -392,6 +625,8 @@ export class A2AServer {
       this.cleanupInterval = null;
     }
     this.tasks.clear();
+    this.pushNotificationConfigs.clear();
+    this.taskSubscribers.clear();
   }
 }
 

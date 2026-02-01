@@ -13,25 +13,29 @@ import path from 'path';
 import { Server } from 'http';
 import { TelegramWebAppManager } from '../channels/telegram-webapp.js';
 import { getMichaelAgentCard } from '../a2a/agent-card.js';
+import { A2AOrchestrator } from '../a2a/orchestrator.js';
 import { log } from '../utils/logger.js';
 import { ClaudeCodeAgent, A2UIAgentMessage } from '../agent/claude-code.js';
 import {
   generateRunId,
   generateThreadId,
   generateMessageId,
-  generateToolCallId,
   createRunStarted,
   createRunFinished,
   createRunError,
   createTextMessageStart,
   createTextMessageContent,
   createTextMessageEnd,
-  createToolCallStart,
-  createToolCallEnd,
-  createToolCallResult,
   AGUIEvent,
 } from './events.js';
 import { formatSSEEvent, SSE_HEADERS, SSE_DONE } from './sse.js';
+import {
+  wrapA2UIMessages,
+  createTextA2UIMessages,
+  A2UIMessagePayload,
+  convertLegacyToStandard,
+  LegacyA2UIMessage,
+} from './a2ui.js';
 
 // --- Types ---
 
@@ -47,10 +51,6 @@ export interface HttpServerConfig {
   /** Path to frontend (Next.js) build */
   frontendPath?: string;
 }
-
-// A2UI MIME type
-const A2UI_MIME_TYPE = 'application/json+a2ui';
-const A2UI_TOOL_NAME = 'render_a2ui';
 
 // --- HTTP Server ---
 
@@ -72,6 +72,7 @@ export class HttpServer {
   private webAppManager: TelegramWebAppManager;
   private config: Required<HttpServerConfig>;
   private agent: ClaudeCodeAgent | null = null;
+  private orchestrator: A2AOrchestrator;
 
   constructor(config: HttpServerConfig = {}) {
     this.config = {
@@ -84,6 +85,12 @@ export class HttpServer {
 
     this.app = express();
     this.webAppManager = new TelegramWebAppManager();
+    this.orchestrator = new A2AOrchestrator();
+
+    // Register Finance Agent (auto-register if URL is set)
+    const financeAgentUrl = process.env.FINANCE_AGENT_URL || 'http://127.0.0.1:8001';
+    this.orchestrator.registerAgent('finance', financeAgentUrl);
+
     this.setupRoutes();
   }
 
@@ -172,6 +179,23 @@ export class HttpServer {
     // API: Chat (non-streaming, JSON response)
     this.app.post('/api/chat', async (req: Request, res: Response) => {
       await this.handleChat(req, res);
+    });
+
+    // API: Finance Agent delegation via Orchestrator
+    this.app.post('/api/finance/chat', async (req: Request, res: Response) => {
+      await this.handleFinanceChat(req, res);
+    });
+
+    // API: List registered agents
+    this.app.get('/api/agents', (_req: Request, res: Response) => {
+      const agents = this.orchestrator.getAllAgents().map((agent) => ({
+        name: agent.name,
+        url: agent.url,
+        healthy: agent.healthy,
+        lastHealthCheck: agent.lastHealthCheck,
+        skills: agent.card?.skills?.map((s) => s.id) || [],
+      }));
+      res.json({ agents });
     });
 
     // Static files for Mini App
@@ -313,20 +337,28 @@ export class HttpServer {
       // 4. TEXT_MESSAGE_END
       sendEvent(createTextMessageEnd(threadId, runId, messageId));
 
-      // 5. A2UI messages (if any) - wrapped in TOOL_CALL events
+      // 5. A2UI messages - ALWAYS generate A2UI for proper rendering
+      // If agent provided A2UI messages, use them; otherwise convert text to A2UI
+      let finalA2UIMessages: A2UIMessagePayload[];
+
       if (a2uiMessages.length > 0) {
-        const toolCallId = generateToolCallId();
+        // Agent provides legacy format messages, convert to v0.8 standard
+        finalA2UIMessages = a2uiMessages
+          .map((msg) => convertLegacyToStandard(msg as unknown as LegacyA2UIMessage))
+          .filter((msg): msg is A2UIMessagePayload => msg !== null);
+      } else if (fullText.trim()) {
+        // Convert plain text to A2UI Text component (AG-UI + A2UI standard)
+        finalA2UIMessages = createTextA2UIMessages(fullText.trim());
+      } else {
+        finalA2UIMessages = [];
+      }
 
-        // TOOL_CALL_START
-        sendEvent(createToolCallStart(threadId, runId, toolCallId, A2UI_TOOL_NAME));
-
-        // TOOL_CALL_RESULT for each A2UI message
-        for (const a2uiMsg of a2uiMessages) {
-          sendEvent(createToolCallResult(threadId, runId, toolCallId, a2uiMsg, A2UI_MIME_TYPE));
+      // Wrap A2UI messages in TOOL_CALL events
+      if (finalA2UIMessages.length > 0) {
+        const toolEvents = wrapA2UIMessages(finalA2UIMessages, threadId, runId);
+        for (const event of toolEvents) {
+          sendEvent(event);
         }
-
-        // TOOL_CALL_END
-        sendEvent(createToolCallEnd(threadId, runId, toolCallId));
       }
 
       // 6. RUN_FINISHED
@@ -376,6 +408,63 @@ export class HttpServer {
       log('error', `Chat failed: ${errorMessage}`);
       res.status(500).json({ error: errorMessage });
     }
+  }
+
+  /**
+   * Handle Finance Agent chat request (delegated via Orchestrator)
+   */
+  private async handleFinanceChat(req: Request, res: Response): Promise<void> {
+    const { message, threadId } = req.body;
+
+    if (!message) {
+      res.status(400).json({ error: 'Message is required' });
+      return;
+    }
+
+    try {
+      // Check if Finance Agent is healthy
+      const financeAgent = this.orchestrator.getAgent('finance');
+      if (!financeAgent) {
+        res.status(503).json({ error: 'Finance Agent not registered' });
+        return;
+      }
+
+      if (!financeAgent.healthy) {
+        // Try to discover/health check the agent
+        await this.orchestrator.discoverAgent('finance');
+        const updatedAgent = this.orchestrator.getAgent('finance');
+        if (!updatedAgent?.healthy) {
+          res.status(503).json({ error: 'Finance Agent is not available' });
+          return;
+        }
+      }
+
+      log('debug', `💰 Delegating to Finance Agent: ${message.substring(0, 50)}...`);
+
+      // Send message to Finance Agent via Orchestrator
+      const response = await this.orchestrator.sendToAgent('finance', message, {
+        threadId,
+        source: 'michael-http-server',
+      });
+
+      res.json({
+        success: true,
+        response,
+        agent: 'finance',
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      log('error', `Finance chat failed: ${errorMessage}`);
+      res.status(500).json({ error: errorMessage });
+    }
+  }
+
+  /**
+   * Get the Orchestrator instance
+   */
+  getOrchestrator(): A2AOrchestrator {
+    return this.orchestrator;
   }
 }
 

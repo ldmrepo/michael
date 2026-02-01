@@ -1,20 +1,25 @@
 /**
- * A2UI State Manager
+ * A2UI State Manager (v0.8 Standard)
  *
  * Manages Surface and DataModel state for A2UI rendering.
  * Handles surface updates, data model changes, and value resolution.
+ *
+ * @see https://a2ui.org/specification/v0.8-a2ui/
  */
 
 import {
   A2UIMessage,
   SurfaceUpdate,
   DataModelUpdate,
+  DeleteSurface,
   ComponentDefinition,
   BoundValue,
+  DataModelContent,
   resolveBoundValue,
   isSurfaceUpdate,
   isDataModelUpdate,
   isBeginRendering,
+  isDeleteSurface,
   ExplicitList,
   PathReference,
 } from './types.js';
@@ -43,9 +48,9 @@ export interface SurfaceState {
  * Data model state
  */
 export interface DataModelState {
-  /** Model ID */
-  modelId: string;
-  /** Model data */
+  /** Surface ID (v0.8 uses surfaceId instead of modelId) */
+  surfaceId: string;
+  /** Model data (extracted from contents) */
   data: Record<string, unknown>;
   /** Last update timestamp */
   lastUpdated: number;
@@ -55,14 +60,15 @@ export interface DataModelState {
 
 export interface A2UIStateEvents {
   onSurfaceUpdate?: (surfaceId: string, state: SurfaceState) => void;
-  onDataModelUpdate?: (modelId: string, state: DataModelState) => void;
+  onDataModelUpdate?: (surfaceId: string, state: DataModelState) => void;
   onBeginRendering?: (surfaceId: string, root?: string) => void;
+  onDeleteSurface?: (surfaceId: string) => void;
 }
 
 // --- A2UI State Manager ---
 
 /**
- * A2UI State Manager
+ * A2UI State Manager (v0.8 Standard)
  *
  * Manages the state of A2UI surfaces and data models.
  *
@@ -75,9 +81,10 @@ export interface A2UIStateEvents {
  * });
  *
  * state.processMessage({
- *   type: 'surfaceUpdate',
- *   surfaceId: 'main',
- *   components: [...]
+ *   surfaceUpdate: {
+ *     surfaceId: 'main',
+ *     components: [...]
+ *   }
  * });
  * ```
  */
@@ -94,7 +101,7 @@ export class A2UIStateManager {
   }
 
   /**
-   * Process an A2UI message and update state
+   * Process an A2UI message and update state (v0.8 standard)
    */
   processMessage(message: A2UIMessage): void {
     if (isSurfaceUpdate(message)) {
@@ -102,7 +109,10 @@ export class A2UIStateManager {
     } else if (isDataModelUpdate(message)) {
       this.handleDataModelUpdate(message);
     } else if (isBeginRendering(message)) {
-      this.handleBeginRendering(message.surfaceId, message.root);
+      const { surfaceId, root } = message.beginRendering;
+      this.handleBeginRendering(surfaceId, root);
+    } else if (isDeleteSurface(message)) {
+      this.handleDeleteSurface(message);
     }
   }
 
@@ -118,26 +128,27 @@ export class A2UIStateManager {
   // --- Surface Management ---
 
   /**
-   * Handle surface update message
+   * Handle surface update message (v0.8 standard)
    */
   private handleSurfaceUpdate(update: SurfaceUpdate): void {
+    const { surfaceId, components: componentList } = update.surfaceUpdate;
     const components = new Map<string, ComponentDefinition>();
     const order: string[] = [];
 
-    for (const component of update.components) {
+    for (const component of componentList) {
       components.set(component.id, component);
       order.push(component.id);
     }
 
     const state: SurfaceState = {
-      surfaceId: update.surfaceId,
+      surfaceId,
       components,
       order,
       lastUpdated: Date.now(),
     };
 
-    this.surfaces.set(update.surfaceId, state);
-    this.events.onSurfaceUpdate?.(update.surfaceId, state);
+    this.surfaces.set(surfaceId, state);
+    this.events.onSurfaceUpdate?.(surfaceId, state);
   }
 
   /**
@@ -149,6 +160,16 @@ export class A2UIStateManager {
       surface.root = root;
     }
     this.events.onBeginRendering?.(surfaceId, root);
+  }
+
+  /**
+   * Handle delete surface message (v0.8 standard)
+   */
+  private handleDeleteSurface(message: DeleteSurface): void {
+    const { surfaceId } = message.deleteSurface;
+    this.surfaces.delete(surfaceId);
+    this.dataModels.delete(surfaceId);
+    this.events.onDeleteSurface?.(surfaceId);
   }
 
   /**
@@ -201,36 +222,81 @@ export class A2UIStateManager {
   // --- Data Model Management ---
 
   /**
-   * Handle data model update message
+   * Handle data model update message (v0.8 standard)
    */
   private handleDataModelUpdate(update: DataModelUpdate): void {
-    const existing = this.dataModels.get(update.modelId);
-    const mergedData = existing
-      ? { ...existing.data, ...update.data }
-      : update.data;
+    const { surfaceId, contents } = update.dataModelUpdate;
+    const existing = this.dataModels.get(surfaceId);
+
+    // Convert contents to data object
+    const newData = this.contentsToData(contents);
+    const mergedData = existing ? { ...existing.data, ...newData } : newData;
 
     const state: DataModelState = {
-      modelId: update.modelId,
+      surfaceId,
       data: mergedData,
       lastUpdated: Date.now(),
     };
 
-    this.dataModels.set(update.modelId, state);
-    this.events.onDataModelUpdate?.(update.modelId, state);
+    this.dataModels.set(surfaceId, state);
+    this.events.onDataModelUpdate?.(surfaceId, state);
+  }
+
+  /**
+   * Convert DataModelContent array to data object
+   */
+  private contentsToData(contents: DataModelContent[]): Record<string, unknown> {
+    const result: Record<string, unknown> = {};
+
+    for (const content of contents) {
+      if (content.valueString !== undefined) {
+        result[content.key] = content.valueString;
+      } else if (content.valueNumber !== undefined) {
+        result[content.key] = content.valueNumber;
+      } else if (content.valueBoolean !== undefined) {
+        result[content.key] = content.valueBoolean;
+      } else if (content.valueMap !== undefined) {
+        result[content.key] = this.contentsToData(content.valueMap);
+      } else if (content.valueList !== undefined) {
+        result[content.key] = this.valueListToArray(content.valueList);
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Convert valueList to array
+   */
+  private valueListToArray(valueList: Array<{
+    valueString?: string;
+    valueNumber?: number;
+    valueBoolean?: boolean;
+    valueMap?: DataModelContent[];
+    valueList?: unknown[];
+  }>): unknown[] {
+    return valueList.map((item) => {
+      if (item.valueString !== undefined) return item.valueString;
+      if (item.valueNumber !== undefined) return item.valueNumber;
+      if (item.valueBoolean !== undefined) return item.valueBoolean;
+      if (item.valueMap !== undefined) return this.contentsToData(item.valueMap);
+      if (item.valueList !== undefined) return this.valueListToArray(item.valueList as typeof valueList);
+      return null;
+    });
   }
 
   /**
    * Get a data model state
    */
-  getDataModel(modelId: string): DataModelState | undefined {
-    return this.dataModels.get(modelId);
+  getDataModel(surfaceId: string): DataModelState | undefined {
+    return this.dataModels.get(surfaceId);
   }
 
   /**
    * Get data model value by path
    */
-  getDataValue(modelId: string, path: string): unknown {
-    const model = this.dataModels.get(modelId);
+  getDataValue(surfaceId: string, path: string): unknown {
+    const model = this.dataModels.get(surfaceId);
     if (!model) return undefined;
 
     return resolveBoundValue({ path }, model.data);
@@ -239,16 +305,16 @@ export class A2UIStateManager {
   /**
    * Set a value in a data model
    */
-  setDataValue(modelId: string, path: string, value: unknown): void {
-    let model = this.dataModels.get(modelId);
+  setDataValue(surfaceId: string, path: string, value: unknown): void {
+    let model = this.dataModels.get(surfaceId);
 
     if (!model) {
       model = {
-        modelId,
+        surfaceId,
         data: {},
         lastUpdated: Date.now(),
       };
-      this.dataModels.set(modelId, model);
+      this.dataModels.set(surfaceId, model);
     }
 
     // Simple path setting (supports /foo/bar format)
@@ -267,7 +333,7 @@ export class A2UIStateManager {
     current[parts[parts.length - 1]] = value;
     model.lastUpdated = Date.now();
 
-    this.events.onDataModelUpdate?.(modelId, model);
+    this.events.onDataModelUpdate?.(surfaceId, model);
   }
 
   /**
@@ -280,8 +346,8 @@ export class A2UIStateManager {
   /**
    * Clear a data model
    */
-  clearDataModel(modelId: string): void {
-    this.dataModels.delete(modelId);
+  clearDataModel(surfaceId: string): void {
+    this.dataModels.delete(surfaceId);
   }
 
   /**
@@ -296,34 +362,46 @@ export class A2UIStateManager {
   /**
    * Resolve a BoundValue using all data models
    *
-   * If the path starts with a model ID (e.g., /booking/date),
+   * If the path starts with a surface ID (e.g., /booking/date),
    * it will look up the value from that specific model.
    * Otherwise, it searches all models.
    */
   resolveBoundValue(value: BoundValue): string {
-    if ('literalString' in value) {
+    if (value.literalString !== undefined) {
       return value.literalString;
+    }
+
+    if (value.literalNumber !== undefined) {
+      return String(value.literalNumber);
+    }
+
+    if (value.literalBoolean !== undefined) {
+      return String(value.literalBoolean);
+    }
+
+    if (value.path === undefined) {
+      return '';
     }
 
     const path = value.path;
     const cleanPath = path.startsWith('/') ? path.slice(1) : path;
     const parts = cleanPath.split('/');
 
-    // First part might be model ID
-    const possibleModelId = parts[0];
-    const model = this.dataModels.get(possibleModelId);
+    // First part might be surface ID
+    const possibleSurfaceId = parts[0];
+    const model = this.dataModels.get(possibleSurfaceId);
 
     if (model) {
       // Try to resolve from the specific model
       const remainingPath = parts.slice(1).join('/');
       const result = resolveBoundValue({ path: remainingPath }, model.data);
-      if (result) return result;
+      if (result !== '') return String(result);
     }
 
     // Try all models
     for (const [, modelState] of this.dataModels) {
       const result = resolveBoundValue(value, modelState.data);
-      if (result) return result;
+      if (result !== '') return String(result);
     }
 
     return '';

@@ -241,7 +241,7 @@ export class TelegramChannel {
   private async handleA2UIMessage(message: GatewayMessage, chatId: number): Promise<void> {
     try {
       const a2uiData = message.metadata?.a2ui as SurfaceUpdate | undefined;
-      if (!a2uiData || a2uiData.type !== 'surfaceUpdate') {
+      if (!a2uiData || !('surfaceUpdate' in a2uiData)) {
         log('warn', '⚠️ Invalid A2UI message');
         return;
       }
@@ -458,64 +458,65 @@ export class TelegramChannel {
         return;
       }
 
-      // 테스트용 A2UI Surface 생성
+      // 테스트용 A2UI Surface 생성 (v0.8 standard)
       const testSurface: SurfaceUpdate = {
-        type: 'surfaceUpdate',
-        surfaceId: 'reservation-form',
-        components: [
-          {
-            id: 'title',
-            component: {
-              Text: {
-                text: { literalString: '예약 정보 입력' },
-                usageHint: 'h1',
+        surfaceUpdate: {
+          surfaceId: 'reservation-form',
+          components: [
+            {
+              id: 'title',
+              component: {
+                Text: {
+                  text: { literalString: '예약 정보 입력' },
+                  usageHint: 'h1',
+                },
               },
             },
-          },
-          {
-            id: 'name-input',
-            component: {
-              TextField: {
-                label: { literalString: '이름' },
-                value: { path: '/form/name' },
-                placeholder: { literalString: '이름을 입력하세요' },
-                required: true,
+            {
+              id: 'name-input',
+              component: {
+                TextField: {
+                  label: { literalString: '이름' },
+                  value: { path: '/form/name' },
+                  placeholder: { literalString: '이름을 입력하세요' },
+                  required: true,
+                },
               },
             },
-          },
-          {
-            id: 'phone-input',
-            component: {
-              TextField: {
-                label: { literalString: '전화번호' },
-                value: { path: '/form/phone' },
-                placeholder: { literalString: '010-0000-0000' },
-                required: true,
+            {
+              id: 'phone-input',
+              component: {
+                TextField: {
+                  label: { literalString: '전화번호' },
+                  value: { path: '/form/phone' },
+                  placeholder: { literalString: '010-0000-0000' },
+                  required: true,
+                },
               },
             },
-          },
-          {
-            id: 'date-input',
-            component: {
-              DateTimeInput: {
-                label: { literalString: '예약 날짜' },
-                value: { path: '/form/date' },
-                mode: 'date',
-                required: true,
+            {
+              id: 'date-input',
+              component: {
+                DateTimeInput: {
+                  label: { literalString: '예약 날짜' },
+                  value: { path: '/form/date' },
+                  mode: 'date',
+                  required: true,
+                },
               },
             },
-          },
-          {
-            id: 'submit-btn',
-            component: {
-              Button: {
-                label: { literalString: '예약하기' },
-                action: { name: 'submit_reservation' },
-                variant: 'primary',
+            {
+              id: 'submit-btn',
+              component: {
+                Button: {
+                  label: { literalString: '예약하기' },
+                  action: { name: 'submit_reservation' },
+                  variant: 'primary',
+                },
               },
             },
-          },
-        ],
+          ],
+        },
       };
 
       // 세션 생성

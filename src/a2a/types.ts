@@ -41,17 +41,24 @@ export interface JSONRPCError {
 // --- Standard JSON-RPC Error Codes ---
 
 export const JSON_RPC_ERRORS = {
+  // Standard JSON-RPC errors
   PARSE_ERROR: -32700,
   INVALID_REQUEST: -32600,
   METHOD_NOT_FOUND: -32601,
   INVALID_PARAMS: -32602,
   INTERNAL_ERROR: -32603,
   // Custom A2A error codes (-32000 to -32099)
-  TASK_NOT_FOUND: -32001,
-  TASK_CANCELLED: -32002,
-  AGENT_UNAVAILABLE: -32003,
-  AUTHENTICATION_REQUIRED: -32004,
-  RATE_LIMITED: -32005,
+  TASK_NOT_FOUND: -32000,
+  PUSH_NOTIFICATION_NOT_SUPPORTED: -32001,
+  UNSUPPORTED_OPERATION: -32002,
+  CONTENT_TYPE_NOT_SUPPORTED: -32003,
+  VERSION_NOT_SUPPORTED: -32004,
+  // Additional custom errors
+  TASK_CANCELLED: -32010,
+  AGENT_UNAVAILABLE: -32011,
+  AUTHENTICATION_REQUIRED: -32012,
+  RATE_LIMITED: -32013,
+  CONFIG_NOT_FOUND: -32014,
 } as const;
 
 // --- Agent Card Types ---
@@ -207,19 +214,32 @@ export interface TaskArtifact {
 }
 
 /**
- * Task definition
+ * Task status info (v0.3.0 standard)
+ */
+export interface TaskStatusInfo {
+  /** Current state */
+  state: TaskStatus;
+  /** Status timestamp */
+  timestamp: string;
+  /** Optional status message */
+  message?: string;
+}
+
+/**
+ * Task definition (v0.3.0 standard)
+ * @see https://a2a-protocol.org/latest/definitions/#task
  */
 export interface Task {
   /** Unique task ID */
   id: string;
-  /** Task status */
-  status: TaskStatus;
-  /** Input message */
-  input: A2AMessage;
-  /** Output message (when completed) */
-  output?: A2AMessage;
+  /** Context ID for conversation continuity */
+  contextId?: string;
+  /** Task status info */
+  status: TaskStatusInfo;
   /** Task artifacts */
   artifacts?: TaskArtifact[];
+  /** Message history */
+  history?: A2AMessage[];
   /** Creation timestamp */
   createdAt: string;
   /** Last updated timestamp */
@@ -305,6 +325,145 @@ export interface TasksListResult {
   total: number;
 }
 
+/**
+ * tasks/subscribe parameters (v0.3.0 standard)
+ * Subscribe to task updates via SSE stream
+ */
+export interface TasksSubscribeParams {
+  /** Task ID to subscribe to */
+  taskId: string;
+}
+
+// --- Push Notification Config Types (v0.3.0 standard) ---
+
+/**
+ * Push notification authentication
+ */
+export interface PushNotificationAuth {
+  /** Authentication type */
+  type: 'bearer' | 'apiKey' | 'none';
+  /** Token or API key */
+  token?: string;
+  /** Header name for apiKey type */
+  headerName?: string;
+}
+
+/**
+ * Push notification configuration
+ */
+export interface PushNotificationConfig {
+  /** Unique config ID */
+  id: string;
+  /** Task ID this config is for */
+  taskId: string;
+  /** Webhook URL to receive notifications */
+  url: string;
+  /** Authentication settings */
+  authentication?: PushNotificationAuth;
+  /** Events to receive notifications for */
+  events?: ('statusUpdate' | 'artifactUpdate' | 'message')[];
+  /** Creation timestamp */
+  createdAt: string;
+}
+
+/**
+ * tasks/pushNotificationConfig/create parameters
+ */
+export interface PushNotificationConfigCreateParams {
+  taskId: string;
+  url: string;
+  authentication?: PushNotificationAuth;
+  events?: ('statusUpdate' | 'artifactUpdate' | 'message')[];
+}
+
+/**
+ * tasks/pushNotificationConfig/create result
+ */
+export interface PushNotificationConfigCreateResult {
+  config: PushNotificationConfig;
+}
+
+/**
+ * tasks/pushNotificationConfig/get parameters
+ */
+export interface PushNotificationConfigGetParams {
+  taskId: string;
+  configId: string;
+}
+
+/**
+ * tasks/pushNotificationConfig/get result
+ */
+export interface PushNotificationConfigGetResult {
+  config: PushNotificationConfig;
+}
+
+/**
+ * tasks/pushNotificationConfig/list parameters
+ */
+export interface PushNotificationConfigListParams {
+  taskId: string;
+}
+
+/**
+ * tasks/pushNotificationConfig/list result
+ */
+export interface PushNotificationConfigListResult {
+  configs: PushNotificationConfig[];
+}
+
+/**
+ * tasks/pushNotificationConfig/delete parameters
+ */
+export interface PushNotificationConfigDeleteParams {
+  taskId: string;
+  configId: string;
+}
+
+/**
+ * tasks/pushNotificationConfig/delete result
+ */
+export interface PushNotificationConfigDeleteResult {
+  success: boolean;
+}
+
+// --- SSE Event Types for tasks/subscribe ---
+
+/**
+ * Task status update event (SSE)
+ */
+export interface TaskStatusUpdateEvent {
+  type: 'statusUpdate';
+  taskId: string;
+  status: TaskStatusInfo;
+}
+
+/**
+ * Task artifact update event (SSE)
+ */
+export interface TaskArtifactUpdateEvent {
+  type: 'artifactUpdate';
+  taskId: string;
+  artifact: TaskArtifact;
+}
+
+/**
+ * Task message event (SSE)
+ */
+export interface TaskMessageEvent {
+  type: 'message';
+  taskId: string;
+  message: A2AMessage;
+}
+
+/**
+ * Union of all task SSE event types
+ */
+export type TaskSubscribeEvent =
+  | TaskStatusUpdateEvent
+  | TaskArtifactUpdateEvent
+  | TaskMessageEvent;
+
 // --- Type Guards ---
 
 export function isTextPart(part: MessagePart): part is TextPart {
@@ -358,4 +517,116 @@ export function extractTextFromMessage(message: A2AMessage): string {
     .filter(isTextPart)
     .map((p) => p.text)
     .join('\n');
+}
+
+// --- Task Helper Functions ---
+
+/**
+ * Generate a unique ID
+ */
+export function generateId(prefix: string = 'id'): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
+/**
+ * Create a new task (v0.3.0 standard)
+ */
+export function createTask(
+  input: A2AMessage,
+  contextId?: string,
+  metadata?: Record<string, unknown>
+): Task {
+  const now = new Date().toISOString();
+  return {
+    id: generateId('task'),
+    contextId,
+    status: {
+      state: 'pending',
+      timestamp: now,
+    },
+    history: [input],
+    createdAt: now,
+    updatedAt: now,
+    metadata,
+  };
+}
+
+/**
+ * Update task status
+ */
+export function updateTaskStatus(
+  task: Task,
+  state: TaskStatus,
+  message?: string
+): Task {
+  const now = new Date().toISOString();
+  return {
+    ...task,
+    status: {
+      state,
+      timestamp: now,
+      message,
+    },
+    updatedAt: now,
+  };
+}
+
+/**
+ * Add message to task history
+ */
+export function addTaskMessage(task: Task, message: A2AMessage): Task {
+  return {
+    ...task,
+    history: [...(task.history || []), message],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Add artifact to task
+ */
+export function addTaskArtifact(task: Task, artifact: TaskArtifact): Task {
+  return {
+    ...task,
+    artifacts: [...(task.artifacts || []), artifact],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Complete task with output
+ */
+export function completeTask(
+  task: Task,
+  output: A2AMessage,
+  artifacts?: TaskArtifact[]
+): Task {
+  const now = new Date().toISOString();
+  return {
+    ...task,
+    status: {
+      state: 'completed',
+      timestamp: now,
+    },
+    history: [...(task.history || []), output],
+    artifacts: artifacts ? [...(task.artifacts || []), ...artifacts] : task.artifacts,
+    updatedAt: now,
+  };
+}
+
+/**
+ * Fail task with error
+ */
+export function failTask(task: Task, error: string): Task {
+  const now = new Date().toISOString();
+  return {
+    ...task,
+    status: {
+      state: 'failed',
+      timestamp: now,
+      message: error,
+    },
+    error,
+    updatedAt: now,
+  };
 }

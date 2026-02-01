@@ -92,21 +92,22 @@ describe('A2UI Types', () => {
         expect(resolveBoundValue(value)).toBe('');
       });
 
-      it('should convert non-string values to string', () => {
+      it('should convert non-string values to number', () => {
         const value: BoundValue = { path: '/count' };
         const dataModel = { count: 42 };
-        expect(resolveBoundValue(value, dataModel)).toBe('42');
+        expect(resolveBoundValue(value, dataModel)).toBe(42);
       });
     });
   });
 
-  describe('A2UI Messages', () => {
+  describe('A2UI Messages (v0.8 Standard)', () => {
     describe('isSurfaceUpdate', () => {
       it('should identify SurfaceUpdate messages', () => {
         const msg: A2UIMessage = {
-          type: 'surfaceUpdate',
-          surfaceId: 'main',
-          components: [],
+          surfaceUpdate: {
+            surfaceId: 'main',
+            components: [],
+          },
         };
         expect(isSurfaceUpdate(msg)).toBe(true);
         expect(isBeginRendering(msg)).toBe(false);
@@ -117,8 +118,9 @@ describe('A2UI Types', () => {
     describe('isBeginRendering', () => {
       it('should identify BeginRendering messages', () => {
         const msg: A2UIMessage = {
-          type: 'beginRendering',
-          surfaceId: 'main',
+          beginRendering: {
+            surfaceId: 'main',
+          },
         };
         expect(isBeginRendering(msg)).toBe(true);
         expect(isSurfaceUpdate(msg)).toBe(false);
@@ -128,9 +130,10 @@ describe('A2UI Types', () => {
     describe('isDataModelUpdate', () => {
       it('should identify DataModelUpdate messages', () => {
         const msg: A2UIMessage = {
-          type: 'dataModelUpdate',
-          modelId: 'booking',
-          data: { date: '2026-03-15' },
+          dataModelUpdate: {
+            surfaceId: 'booking',
+            contents: [{ key: 'date', valueString: '2026-03-15' }],
+          },
         };
         expect(isDataModelUpdate(msg)).toBe(true);
         expect(isSurfaceUpdate(msg)).toBe(false);

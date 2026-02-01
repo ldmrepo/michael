@@ -387,21 +387,104 @@ graph TB
     COMP3 -->|action| ACTION[submit_reservation]
 ```
 
-### A2A (Agent-to-Agent)
+### A2A (Agent-to-Agent) v0.3.0
 
 JSON-RPC 2.0 기반 에이전트 간 통신 프로토콜입니다.
+
+**핵심 타입 (v0.3.0 표준):**
+
+```typescript
+// Task 구조
+interface Task {
+  id: string;
+  contextId?: string;              // 대화 연속성을 위한 컨텍스트 ID
+  status: TaskStatusInfo;          // 상태 정보 객체
+  artifacts?: TaskArtifact[];      // 출력 아티팩트
+  history?: A2AMessage[];          // 메시지 히스토리
+  createdAt: string;
+  updatedAt: string;
+  error?: string;
+  metadata?: Record<string, unknown>;
+}
+
+// 상태 정보 (v0.3.0)
+interface TaskStatusInfo {
+  state: 'pending' | 'working' | 'completed' | 'failed' | 'cancelled';
+  timestamp: string;
+  message?: string;
+}
+```
+
+**지원 메서드:**
+
+| 메서드 | 설명 |
+|--------|------|
+| `message/send` | 메시지 전송, Task 반환 |
+| `message/stream` | SSE 스트리밍 응답 |
+| `tasks/get` | Task 상태 조회 |
+| `tasks/list` | Task 목록 조회 |
+| `tasks/cancel` | Task 취소 |
+| `tasks/subscribe` | Task 업데이트 SSE 구독 |
+| `tasks/pushNotificationConfig/*` | 웹훅 설정 CRUD |
+
+**에러 코드:**
+
+| 코드 | 이름 | 설명 |
+|------|------|------|
+| `-32000` | TASK_NOT_FOUND | 태스크 없음 |
+| `-32001` | PUSH_NOTIFICATION_NOT_SUPPORTED | 푸시 미지원 |
+| `-32010` | TASK_CANCELLED | 태스크 취소됨 |
+| `-32011` | AGENT_UNAVAILABLE | 에이전트 불가 |
+| `-32014` | CONFIG_NOT_FOUND | 설정 없음 |
 
 ```mermaid
 sequenceDiagram
     participant C as Client Agent
     participant S as Server Agent
+    participant WH as Webhook
 
     C->>S: GET /.well-known/agent.json
     S-->>C: AgentCard (capabilities)
 
-    C->>S: POST / (JSON-RPC)
-    Note right of C: {"method": "tasks/send",<br/>"params": {"message": "..."}}
-    S-->>C: {"result": {"message": "..."}}
+    C->>S: POST / (message/send)
+    Note right of C: {"method": "message/send",<br/>"params": {"message": {...}}}
+    S-->>C: {"result": {"task": {...}}}
+
+    C->>S: POST / (tasks/subscribe)
+    Note right of C: SSE 스트림 구독
+    S-->>C: event: statusUpdate
+    S-->>C: event: artifactUpdate
+    S-->>C: event: message
+
+    opt Push Notifications
+        C->>S: POST / (pushNotificationConfig/create)
+        S-->>C: {"result": {"config": {...}}}
+        S->>WH: POST (statusUpdate)
+    end
+```
+
+**Orchestrator (멀티 에이전트):**
+
+```mermaid
+graph TB
+    subgraph Orchestrator["A2A Orchestrator"]
+        REG[Agent Registry]
+        HEALTH[Health Check]
+        WORKFLOW[Workflow Engine]
+    end
+
+    subgraph Agents["Registered Agents"]
+        A1[Calendar Agent]
+        A2[Weather Agent]
+        A3[Search Agent]
+    end
+
+    WORKFLOW -->|step 1| A1
+    WORKFLOW -->|step 2| A2
+    WORKFLOW -->|parallel| A3
+    HEALTH -->|60s interval| A1
+    HEALTH -->|60s interval| A2
+    HEALTH -->|60s interval| A3
 ```
 
 ---
@@ -549,4 +632,4 @@ graph TB
 
 ---
 
-*마지막 업데이트: 2026-02-01*
+*마지막 업데이트: 2026-02-02*

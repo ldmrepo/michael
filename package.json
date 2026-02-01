@@ -16,7 +16,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
     "format": "prettier --write src",
-    "demo:vector": "tsx examples/vector-search-demo.ts"
+    "demo:vector": "tsx examples/vector-search-demo.ts",
+    "dev:finance": "tsx watch src/agents/finance/server.ts",
+    "start:finance": "node dist/agents/finance/server.js"
   },
   "keywords": [
     "ai",

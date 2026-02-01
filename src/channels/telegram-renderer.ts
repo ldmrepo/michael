@@ -13,7 +13,6 @@ import {
   BoundValue,
   Action,
   ExplicitList,
-  isLiteralString,
   isTextComponent,
   isButtonComponent,
   isImageComponent,
@@ -179,20 +178,22 @@ export class TelegramAdaptiveRenderer {
   }
 
   /**
-   * Render A2UI SurfaceUpdate to Telegram message
+   * Render A2UI SurfaceUpdate to Telegram message (v0.8 standard)
    */
   render(
     surface: SurfaceUpdate,
     dataModel?: Record<string, unknown>
   ): TelegramRenderedMessage {
+    const { components } = surface.surfaceUpdate;
+
     // Build component map for ID lookup
     this.componentMap.clear();
-    for (const comp of surface.components) {
+    for (const comp of components) {
       this.componentMap.set(comp.id, comp);
     }
 
     // Check if any form inputs exist
-    const hasFormInputs = surface.components.some((c) =>
+    const hasFormInputs = components.some((c: ComponentDefinition) =>
       isFormInputComponent(c.component)
     );
 
@@ -201,7 +202,7 @@ export class TelegramAdaptiveRenderer {
     }
 
     // Native rendering
-    return this.renderNative(surface.components, dataModel);
+    return this.renderNative(components, dataModel);
   }
 
   /**
@@ -424,17 +425,24 @@ export class TelegramAdaptiveRenderer {
   }
 
   /**
-   * Resolve BoundValue to string
+   * Resolve BoundValue to string (v0.8 standard)
    */
   private resolveBoundValue(
     value: BoundValue,
     dataModel?: Record<string, unknown>
   ): string {
-    if (isLiteralString(value)) {
+    // Check literal values first
+    if (value.literalString !== undefined) {
       return value.literalString;
     }
+    if (value.literalNumber !== undefined) {
+      return String(value.literalNumber);
+    }
+    if (value.literalBoolean !== undefined) {
+      return String(value.literalBoolean);
+    }
 
-    if (!dataModel) {
+    if (!value.path || !dataModel) {
       return '';
     }
 
@@ -477,7 +485,7 @@ export class TelegramAdaptiveRenderer {
   }
 
   /**
-   * Serialize action to callback_data string
+   * Serialize action to callback_data string (v0.8 standard)
    */
   private serializeAction(action: Action): string {
     // Format: action_name:key1=val1,key2=val2
@@ -485,7 +493,8 @@ export class TelegramAdaptiveRenderer {
 
     if (action.context && action.context.length > 0) {
       const contextParts = action.context.map((ctx) => {
-        const val = isLiteralString(ctx.value) ? ctx.value.literalString : ctx.value.path;
+        // v0.8: BoundValue has literalString, literalNumber, literalBoolean, or path
+        const val = ctx.value.literalString ?? ctx.value.literalNumber ?? ctx.value.literalBoolean ?? ctx.value.path ?? '';
         return `${ctx.key}=${val}`;
       });
       data += ':' + contextParts.join(',');
@@ -556,8 +565,8 @@ export function createTelegramRenderer(config?: TelegramRendererConfig): Telegra
 // --- Utility Functions ---
 
 /**
- * Check if A2UI surface requires Web App for rendering
+ * Check if A2UI surface requires Web App for rendering (v0.8 standard)
  */
 export function requiresWebApp(surface: SurfaceUpdate): boolean {
-  return surface.components.some((c) => isFormInputComponent(c.component));
+  return surface.surfaceUpdate.components.some((c: ComponentDefinition) => isFormInputComponent(c.component));
 }

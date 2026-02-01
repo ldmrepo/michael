@@ -29,12 +29,14 @@ export type AGUIEventType =
 
 /**
  * Base interface for all AG-UI events
+ * @see https://learn.microsoft.com/agent-framework/integrations/ag-ui/
  */
 export interface AGUIBaseEvent {
   type: AGUIEventType;
   threadId: string;
   runId: string;
-  timestamp?: string;
+  /** ISO 8601 timestamp (required per AG-UI standard) */
+  timestamp: string;
 }
 
 // --- Run Events ---

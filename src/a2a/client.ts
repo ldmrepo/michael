@@ -179,9 +179,9 @@ export class A2AClient {
       const task = await this.getTask(agentUrl, taskId);
 
       if (
-        task.status === 'completed' ||
-        task.status === 'failed' ||
-        task.status === 'cancelled'
+        task.status.state === 'completed' ||
+        task.status.state === 'failed' ||
+        task.status.state === 'cancelled'
       ) {
         return task;
       }
@@ -203,19 +203,23 @@ export class A2AClient {
     const task = await this.sendText(agentUrl, text, metadata);
     const completedTask = await this.waitForTask(agentUrl, task.id);
 
-    if (completedTask.status === 'failed') {
+    if (completedTask.status.state === 'failed') {
       throw new Error(completedTask.error || 'Task failed');
     }
 
-    if (completedTask.status === 'cancelled') {
+    if (completedTask.status.state === 'cancelled') {
       throw new Error('Task was cancelled');
     }
 
-    if (!completedTask.output) {
+    // Get last assistant message from history
+    const history = completedTask.history || [];
+    const lastAssistantMessage = history.filter(m => m.role === 'assistant').pop();
+
+    if (!lastAssistantMessage) {
       return '';
     }
 
-    return extractTextFromMessage(completedTask.output);
+    return extractTextFromMessage(lastAssistantMessage);
   }
 
   /**

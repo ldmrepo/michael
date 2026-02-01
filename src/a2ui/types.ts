@@ -11,67 +11,103 @@
 // --- Bound Values ---
 
 /**
- * A literal string value
+ * BoundValue: literal value or data model path reference (v0.8 standard)
+ * @see https://a2ui.org/specification/v0.8-a2ui/#boundvalue
  */
-export interface LiteralString {
-  literalString: string;
+export interface BoundValue {
+  literalString?: string;
+  literalNumber?: number;
+  literalBoolean?: boolean;
+  path?: string;
 }
 
-/**
- * A path reference to a data model value
- */
-export interface PathReference {
-  path: string;
-}
-
-/**
- * A value that can be either a literal string or a reference to data model
- */
-export type BoundValue = LiteralString | PathReference;
+// Legacy types for backward compatibility
+export type LiteralString = { literalString: string };
+export type PathReference = { path: string };
 
 /**
  * Type guard for LiteralString
  */
 export function isLiteralString(value: BoundValue): value is LiteralString {
-  return 'literalString' in value;
+  return 'literalString' in value && value.literalString !== undefined;
+}
+
+/**
+ * Type guard for LiteralNumber
+ */
+export function isLiteralNumber(value: BoundValue): boolean {
+  return 'literalNumber' in value && value.literalNumber !== undefined;
+}
+
+/**
+ * Type guard for LiteralBoolean
+ */
+export function isLiteralBoolean(value: BoundValue): boolean {
+  return 'literalBoolean' in value && value.literalBoolean !== undefined;
 }
 
 /**
  * Type guard for PathReference
  */
 export function isPathReference(value: BoundValue): value is PathReference {
-  return 'path' in value;
+  return 'path' in value && value.path !== undefined;
 }
 
 /**
- * Resolve a BoundValue to its string value
+ * Helper to create a literal BoundValue
+ */
+export function literal(value: string | number | boolean): BoundValue {
+  if (typeof value === 'string') return { literalString: value };
+  if (typeof value === 'number') return { literalNumber: value };
+  return { literalBoolean: value };
+}
+
+/**
+ * Helper to create a path reference BoundValue
+ */
+export function pathRef(path: string): BoundValue {
+  return { path };
+}
+
+/**
+ * Resolve a BoundValue to its final value
+ *
+ * Resolution order:
+ * 1. If path exists, look up value in dataModel
+ * 2. Fall back to literal values (string, number, boolean)
+ *
+ * @see https://a2ui.org/specification/v0.8-a2ui/#boundvalue-resolution
  */
 export function resolveBoundValue(
   value: BoundValue,
   dataModel?: Record<string, unknown>
-): string {
-  if (isLiteralString(value)) {
-    return value.literalString;
-  }
+): string | number | boolean {
+  // Path reference - look up in data model first
+  if (value.path !== undefined && dataModel) {
+    const path = value.path.startsWith('/') ? value.path.slice(1) : value.path;
+    const parts = path.split('/');
+    let current: unknown = dataModel;
 
-  if (!dataModel) {
-    return '';
-  }
+    for (const part of parts) {
+      if (current && typeof current === 'object' && part in current) {
+        current = (current as Record<string, unknown>)[part];
+      } else {
+        current = undefined;
+        break;
+      }
+    }
 
-  // Simple path resolution (supports /foo/bar format)
-  const path = value.path.startsWith('/') ? value.path.slice(1) : value.path;
-  const parts = path.split('/');
-  let current: unknown = dataModel;
-
-  for (const part of parts) {
-    if (current && typeof current === 'object' && part in current) {
-      current = (current as Record<string, unknown>)[part];
-    } else {
-      return '';
+    if (current !== undefined) {
+      return current as string | number | boolean;
     }
   }
 
-  return String(current ?? '');
+  // Literal fallback (check in order: string, number, boolean)
+  if (value.literalString !== undefined) return value.literalString;
+  if (value.literalNumber !== undefined) return value.literalNumber;
+  if (value.literalBoolean !== undefined) return value.literalBoolean;
+
+  return '';
 }
 
 // --- Actions ---
@@ -402,45 +438,78 @@ export interface ComponentDefinition {
   component: A2UIComponentType;
 }
 
-// --- Surface Update ---
+// --- A2UI Messages (v0.8 Standard) ---
 
 /**
- * Surface update message - defines components for a surface
+ * surfaceUpdate message (v0.8 standard)
+ * @see https://a2ui.org/specification/v0.8-a2ui/#surfaceupdate
  */
 export interface SurfaceUpdate {
-  type: 'surfaceUpdate';
-  /** Surface ID (e.g., 'main', 'sidebar') */
-  surfaceId: string;
-  /** List of component definitions */
-  components: ComponentDefinition[];
+  surfaceUpdate: {
+    surfaceId: string;
+    components: ComponentDefinition[];
+  };
 }
 
 /**
- * Begin rendering message - signals start of rendering
+ * beginRendering message (v0.8 standard)
+ * @see https://a2ui.org/specification/v0.8-a2ui/#beginrendering
  */
 export interface BeginRendering {
-  type: 'beginRendering';
-  /** Surface ID to render */
-  surfaceId: string;
-  /** Root component ID (optional, defaults to first component) */
-  root?: string;
+  beginRendering: {
+    surfaceId: string;
+    root?: string;
+    catalogId?: string;
+  };
 }
 
 /**
- * Data model update message - updates data model values
+ * DataModel content item for dataModelUpdate
+ */
+export interface DataModelContent {
+  key: string;
+  valueString?: string;
+  valueNumber?: number;
+  valueBoolean?: boolean;
+  valueMap?: DataModelContent[];
+  valueList?: DataModelValue[];
+}
+
+/**
+ * DataModel value type for lists
+ */
+export type DataModelValue =
+  | { valueString: string }
+  | { valueNumber: number }
+  | { valueBoolean: boolean }
+  | { valueMap: DataModelContent[] }
+  | { valueList: DataModelValue[] };
+
+/**
+ * dataModelUpdate message (v0.8 standard)
+ * @see https://a2ui.org/specification/v0.8-a2ui/#datamodelupdate
  */
 export interface DataModelUpdate {
-  type: 'dataModelUpdate';
-  /** Model ID */
-  modelId: string;
-  /** Updated data */
-  data: Record<string, unknown>;
+  dataModelUpdate: {
+    surfaceId: string;
+    contents: DataModelContent[];
+  };
 }
 
 /**
- * Union of all A2UI message types
+ * deleteSurface message (v0.8 standard)
+ * @see https://a2ui.org/specification/v0.8-a2ui/#deletesurface
  */
-export type A2UIMessage = SurfaceUpdate | BeginRendering | DataModelUpdate;
+export interface DeleteSurface {
+  deleteSurface: {
+    surfaceId: string;
+  };
+}
+
+/**
+ * Union of all A2UI message types (v0.8 standard)
+ */
+export type A2UIMessage = SurfaceUpdate | BeginRendering | DataModelUpdate | DeleteSurface;
 
 // --- Type Guards ---
 
@@ -448,21 +517,28 @@ export type A2UIMessage = SurfaceUpdate | BeginRendering | DataModelUpdate;
  * Check if message is a SurfaceUpdate
  */
 export function isSurfaceUpdate(msg: A2UIMessage): msg is SurfaceUpdate {
-  return msg.type === 'surfaceUpdate';
+  return 'surfaceUpdate' in msg;
 }
 
 /**
  * Check if message is a BeginRendering
  */
 export function isBeginRendering(msg: A2UIMessage): msg is BeginRendering {
-  return msg.type === 'beginRendering';
+  return 'beginRendering' in msg;
 }
 
 /**
  * Check if message is a DataModelUpdate
  */
 export function isDataModelUpdate(msg: A2UIMessage): msg is DataModelUpdate {
-  return msg.type === 'dataModelUpdate';
+  return 'dataModelUpdate' in msg;
+}
+
+/**
+ * Check if message is a DeleteSurface
+ */
+export function isDeleteSurface(msg: A2UIMessage): msg is DeleteSurface {
+  return 'deleteSurface' in msg;
 }
 
 // --- Component Type Guards ---
