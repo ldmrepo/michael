@@ -1,9 +1,24 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { log } from '../utils/logger.js';
 import { ClaudeCodeAgent } from '../agent/claude-code.js';
+import {
+  AGUIEventType,
+  AGUIEvent,
+  generateRunId,
+  generateMessageId,
+  createRunStarted,
+  createRunFinished,
+  createRunError,
+  createTextMessageStart,
+  createTextMessageContent,
+  createTextMessageEnd,
+  createToolCallStart,
+  createToolCallEnd,
+} from './events.js';
 
 /**
  * Gateway 메시지 타입
+ * AG-UI 프로토콜 호환 확장 (하위 호환성 유지)
  */
 export interface GatewayMessage {
   from: 'telegram' | 'scheduler' | 'cli' | 'agent';
@@ -11,6 +26,17 @@ export interface GatewayMessage {
   userId: string;
   content: string;
   metadata?: Record<string, any>;
+  // AG-UI 확장 필드 (선택적)
+  eventType?: AGUIEventType;
+  threadId?: string;
+  runId?: string;
+  messageId?: string;
+  // AG-UI 이벤트 특정 필드
+  delta?: string;
+  toolCallId?: string;
+  toolCallName?: string;
+  errorMessage?: string;
+  errorCode?: string;
 }
 
 /**
@@ -186,7 +212,7 @@ export class Gateway {
   }
 
   /**
-   * Agent 메시지 처리
+   * Agent 메시지 처리 (레거시 동기식)
    */
   private async handleAgentMessage(
     senderId: string,
@@ -204,30 +230,90 @@ export class Gateway {
       return;
     }
 
-    try {
-      log('debug', `🤖 Processing with Agent: ${message.content.substring(0, 50)}...`);
-      
-      // Agent 호출
-      const response = await this.agent.chat(message.userId, message.content);
+    // 스트리밍 모드 사용 시 새 핸들러로 위임
+    await this.handleAgentMessageWithStreaming(senderId, message);
+  }
 
-      // 응답 전송
+  /**
+   * AG-UI 스트리밍을 지원하는 Agent 메시지 처리
+   *
+   * 이벤트 시퀀스: RUN_STARTED → TEXT_MESSAGE_START → TEXT_MESSAGE_CONTENT* → TEXT_MESSAGE_END → RUN_FINISHED
+   * 에러 시: RUN_ERROR
+   */
+  private async handleAgentMessageWithStreaming(
+    senderId: string,
+    message: GatewayMessage
+  ): Promise<void> {
+    if (!this.agent) {
+      return;
+    }
+
+    // userId를 threadId로 사용 (사용자별 대화 스레드)
+    const threadId = message.threadId || `thread_${message.userId}`;
+    const runId = generateRunId();
+    const messageId = generateMessageId();
+
+    // AG-UI 이벤트를 GatewayMessage로 변환하여 전송
+    const sendAGUIEvent = (event: AGUIEvent, content: string = '') => {
       this.send(senderId, {
         from: 'agent',
         to: message.from,
         userId: message.userId,
-        content: response,
+        content,
         metadata: message.metadata,
+        eventType: event.type,
+        threadId: event.threadId,
+        runId: event.runId,
+        messageId: 'messageId' in event ? (event as any).messageId : undefined,
+        delta: 'delta' in event ? (event as any).delta : undefined,
+        toolCallId: 'toolCallId' in event ? (event as any).toolCallId : undefined,
+        toolCallName: 'toolCallName' in event ? (event as any).toolCallName : undefined,
+        errorMessage: 'message' in event && event.type === 'RUN_ERROR' ? (event as any).message : undefined,
+        errorCode: 'code' in event ? (event as any).code : undefined,
       });
+    };
+
+    try {
+      log('debug', `🤖 Processing with Agent (streaming): ${message.content.substring(0, 50)}...`);
+
+      // RUN_STARTED 이벤트 전송
+      sendAGUIEvent(createRunStarted(threadId, runId));
+
+      // TEXT_MESSAGE_START 이벤트 전송
+      sendAGUIEvent(createTextMessageStart(threadId, runId, messageId, 'assistant'));
+
+      // Agent 호출 (스트리밍 콜백과 함께)
+      const response = await this.agent.chatWithStreaming(
+        message.userId,
+        message.content,
+        {
+          onTextContent: (delta: string, _snapshot: string) => {
+            sendAGUIEvent(createTextMessageContent(threadId, runId, messageId, delta));
+          },
+          onToolStart: (toolId: string, toolName: string) => {
+            sendAGUIEvent(createToolCallStart(threadId, runId, toolId, toolName));
+          },
+          onToolEnd: (toolId: string, _result: unknown) => {
+            sendAGUIEvent(createToolCallEnd(threadId, runId, toolId));
+          },
+        }
+      );
+
+      // TEXT_MESSAGE_END 이벤트 전송
+      sendAGUIEvent(createTextMessageEnd(threadId, runId, messageId), response);
+
+      // RUN_FINISHED 이벤트 전송
+      sendAGUIEvent(createRunFinished(threadId, runId), response);
 
     } catch (error) {
       log('error', `❌ Agent error: ${error}`);
-      this.send(senderId, {
-        from: 'agent',
-        to: message.from,
-        userId: message.userId,
-        content: `죄송합니다. 오류가 발생했습니다: ${error}`,
-        metadata: { error: String(error) },
-      });
+
+      // RUN_ERROR 이벤트 전송
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      sendAGUIEvent(
+        createRunError(threadId, runId, errorMessage, 'AGENT_ERROR'),
+        `죄송합니다. 오류가 발생했습니다: ${error}`
+      );
     }
   }
 

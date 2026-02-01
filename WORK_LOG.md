@@ -221,3 +221,194 @@ EMBEDDING_PROVIDER=local
 1. GitHub Issue #1 — 1회 스케줄 DB 영속화
 2. GitHub Issue #2 — 마커 구분자 충돌 수정
 3. Telegram 실사용 테스트 및 안정화
+
+---
+
+## Phase 8-12: HTTP 서버 + Telegram Mini App 통합 (2026-02-01)
+
+### 목표
+Telegram Mini App을 통해 복잡한 A2UI 폼을 렌더링하고 사용자 입력을 받아 처리
+
+### 구현 내용
+
+#### 1. HTTP 서버 (`src/core/http-server.ts`)
+- Express 5 기반 HTTP 서버
+- 엔드포인트:
+  - `GET /health` — 헬스 체크
+  - `GET /.well-known/agent.json` — A2A Agent Card
+  - `GET /api/webapp/session/:id` — 세션 조회
+  - `POST /api/webapp/session/:id` — 세션 업데이트
+  - `GET /webapp/*` — Mini App 정적 파일
+
+#### 2. Telegram Mini App (`ui/telegram-mini-app/`)
+- React + TypeScript + Vite
+- A2UI Surface 렌더링 컴포넌트
+- Telegram WebApp SDK 통합 (`tg.sendData()`, `tg.close()`)
+
+#### 3. ngrok HTTPS 터널링
+- Telegram Mini App은 HTTPS 필수
+- ngrok free dev domain: `roxy-exoskeletal-shayla.ngrok-free.dev`
+- 설정: `.env`의 `WEBAPP_URL` 및 `NGROK_AUTHTOKEN`
+
+```bash
+# ngrok 실행 (백그라운드)
+ngrok http --url=roxy-exoskeletal-shayla.ngrok-free.dev 3000
+```
+
+#### 4. 세션 기반 A2UI 폼 플로우
+```
+1. 사용자: /form 명령어 전송
+2. 봇: 세션 생성 + Reply Keyboard 버튼 전송
+3. 사용자: "📝 예약 폼 열기" 버튼 클릭 → Mini App 열림
+4. Mini App: 세션 API에서 Surface 로드 → 폼 렌더링
+5. 사용자: 폼 작성 후 "예약하기" 클릭
+6. Mini App: tg.sendData() 호출 → 앱 닫힘
+7. 봇: web_app_data 메시지 수신 → 처리
+```
+
+### 주요 이슈 및 해결
+
+#### 이슈 1: Telegraf `bot.launch()` 폴링 실패
+- **증상**: `bot.launch()` 호출 후 메시지를 수신하지 못함
+- **원인**: Telegraf의 long polling이 정상 시작되지 않음 (원인 불명)
+- **해결**: 수동 폴링 구현 (`startManualPolling()`)
+
+```typescript
+// src/channels/telegram.ts
+private startManualPolling(): void {
+  let offset = 0;
+  const poll = async () => {
+    while (running) {
+      const updates = await this.bot.telegram.callApi('getUpdates', {
+        offset,
+        timeout: 30,
+        allowed_updates: ['message', 'callback_query'],
+      });
+      for (const update of updates) {
+        offset = update.update_id + 1;
+        await this.bot.handleUpdate(update);
+      }
+    }
+  };
+  poll();
+}
+```
+
+#### 이슈 2: `web_app_data` 미수신
+- **증상**: Mini App에서 `sendData()` 호출해도 봇에서 데이터 미수신
+- **원인**: `InlineKeyboardButton`의 `web_app`은 `sendData()`로 메시지 전송 불가
+- **해결**: `KeyboardButton` (Reply Keyboard) 사용
+
+```typescript
+// ❌ 작동 안 함 (Inline Keyboard)
+reply_markup: {
+  inline_keyboard: [[{ text: '폼 열기', web_app: { url } }]]
+}
+
+// ✅ 작동함 (Reply Keyboard)
+reply_markup: {
+  keyboard: [[{ text: '폼 열기', web_app: { url } }]],
+  resize_keyboard: true,
+  one_time_keyboard: true,
+}
+```
+
+#### 이슈 3: 포트 충돌 (EADDRINUSE)
+- **증상**: 서버 시작 시 포트 18789 사용 중 에러
+- **원인**: `ai.openclaw.gateway` launchd 데몬이 같은 포트 사용
+- **해결**: 해당 서비스 중지 또는 Michael 포트 변경
+
+```bash
+# 포트 사용 프로세스 확인
+lsof -i :18789
+
+# launchd 서비스 확인
+launchctl list | grep gateway
+```
+
+### 수정/추가된 파일
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `src/core/http-server.ts` | 신규 - Express HTTP 서버 |
+| `src/core/http-server.test.ts` | 신규 - 테스트 |
+| `src/channels/telegram.ts` | 수동 폴링, Reply Keyboard, web_app_data 핸들러 |
+| `src/channels/telegram-webapp.ts` | 신규 - WebApp 세션 매니저 |
+| `src/index.ts` | HTTP 서버 통합 |
+| `ui/telegram-mini-app/` | 신규 - Mini App (React) |
+| `.env` | HTTP_PORT, WEBAPP_URL, NGROK_AUTHTOKEN 추가 |
+
+### 환경 변수 추가
+
+```bash
+# .env 추가 항목
+HTTP_PORT=3000
+WEBAPP_URL=https://roxy-exoskeletal-shayla.ngrok-free.dev
+NGROK_AUTHTOKEN=<your_ngrok_token>
+```
+
+### 테스트 방법
+
+```bash
+# 1. ngrok 실행 (별도 터미널)
+ngrok http --url=roxy-exoskeletal-shayla.ngrok-free.dev 3000
+
+# 2. Mini App 빌드
+cd ui/telegram-mini-app && pnpm build && cd ../..
+
+# 3. 서버 시작
+pnpm dev
+
+# 4. Telegram에서 테스트
+# - /form 명령어 전송
+# - 키보드 버튼 클릭하여 Mini App 열기
+# - 폼 작성 후 제출
+# - 로그에서 "📱 Web App data received" 확인
+```
+
+### 알려진 제한사항
+
+1. **Reply Keyboard 필수**: Inline Keyboard의 web_app 버튼은 sendData() 미지원
+2. **ngrok 세션 제한**: 무료 플랜은 세션당 시간 제한 있음
+3. **Telegraf 폴링 이슈**: 수동 폴링으로 우회했으나 근본 원인 미해결
+
+---
+
+## 현재 상태 요약 (2026-02-01 업데이트)
+
+### 작동 중인 기능
+- Gateway (WebSocket, port 18789)
+- HTTP Server (port 3000)
+- Memory (SQLite + 벡터 검색)
+- Claude Agent (CLI `-p` 모드)
+- Telegram 봇 (양방향 대화 + Mini App)
+- Scheduler (반복 cron + 1회 setTimeout)
+- 벡터 기반 시맨틱 메모리 검색
+- **A2UI Mini App 폼 제출** ✅ 신규
+
+### 아키텍처
+```
+HTTP Server :3000
+  ├─> Static: /webapp/* → dist/webapp/
+  ├─> API: /api/webapp/session/:id
+  └─> Health: /health
+
+Gateway (WebSocket) :18789
+  ├─> Telegram Channel (Telegraf + 수동 폴링)
+  ├─> Claude Code Agent
+  ├─> Memory (SQLite)
+  └─> Scheduler
+
+ngrok tunnel
+  └─> HTTPS → localhost:3000
+```
+
+### 다음 작업 제안
+1. **프로덕션 배포**: ngrok 대신 실제 도메인 + SSL
+2. **Telegraf 이슈 조사**: `bot.launch()` 폴링 실패 근본 원인
+3. **A2A 프로토콜 완성**: 외부 Agent 연동
+4. **에러 처리 강화**: Mini App 에러 시 사용자 피드백
+
+---
+
+*마지막 업데이트: 2026-02-01*

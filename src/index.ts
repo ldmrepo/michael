@@ -4,6 +4,7 @@ import { Memory } from './brain/memory.js';
 import { ClaudeCodeAgent } from './agent/claude-code.js';
 import { TelegramChannel } from './channels/telegram.js';
 import { Scheduler } from './scheduler/cron.js';
+import { HttpServer } from './core/http-server.js';
 import { log } from './utils/logger.js';
 import { loadMemoryConfig } from './memory-new/config.js';
 import path from 'path';
@@ -20,6 +21,7 @@ class Michael {
   private agent: ClaudeCodeAgent;
   private telegram: TelegramChannel | null = null;
   private scheduler: Scheduler;
+  private httpServer: HttpServer;
 
   constructor() {
     // 환경 변수
@@ -39,6 +41,14 @@ class Michael {
 
     // Agent에 Scheduler 연결 (스케줄 즉시 등록용)
     this.agent.setScheduler(this.scheduler);
+
+    // HTTP 서버 초기화
+    const httpPort = parseInt(process.env.HTTP_PORT || '3000');
+    const webappUrl = process.env.WEBAPP_URL || `http://localhost:${httpPort}`;
+    this.httpServer = new HttpServer({
+      port: httpPort,
+      baseUrl: webappUrl,
+    });
 
     log('info', '🚀 Michael initialized');
   }
@@ -64,6 +74,9 @@ class Michael {
       // Gateway 시작
       await this.gateway.start();
 
+      // HTTP 서버 시작
+      await this.httpServer.start();
+
       // Scheduler 시작
       await this.scheduler.start();
       log('info', '✅ Scheduler started');
@@ -73,6 +86,8 @@ class Michael {
       if (telegramToken) {
         const gatewayUrl = `ws://${process.env.GATEWAY_HOST || '127.0.0.1'}:${process.env.GATEWAY_PORT || '18789'}`;
         this.telegram = new TelegramChannel(telegramToken, gatewayUrl);
+        // WebAppManager 연결
+        this.telegram.setWebAppManager(this.httpServer.getWebAppManager());
         await this.telegram.start();
         log('info', '✅ Telegram channel connected');
       } else {
@@ -109,6 +124,7 @@ class Michael {
     if (this.telegram) {
       await this.telegram.stop();
     }
+    await this.httpServer.stop();
     await this.gateway.close();
     this.agent.close();
     await this.memory.close(); // async for vector search cleanup

@@ -23,6 +23,32 @@ export interface ClaudeCodeOptions {
 }
 
 /**
+ * A2UI 메시지 타입 (Agent에서 추출)
+ */
+export interface A2UIAgentMessage {
+  type: 'surfaceUpdate' | 'dataModelUpdate' | 'beginRendering';
+  surfaceId?: string;
+  modelId?: string;
+  components?: unknown[];
+  data?: Record<string, unknown>;
+  root?: string;
+}
+
+/**
+ * 스트리밍 콜백 인터페이스 (AG-UI 프로토콜)
+ */
+export interface StreamingCallbacks {
+  onStart?: (runId: string) => void;
+  onTextContent?: (delta: string, snapshot: string) => void;
+  onTextEnd?: (messageId: string, fullText: string) => void;
+  onToolStart?: (toolId: string, toolName: string) => void;
+  onToolEnd?: (toolId: string, result: unknown) => void;
+  onA2UI?: (messages: A2UIAgentMessage[]) => void;
+  onFinish?: (runId: string) => void;
+  onError?: (error: Error) => void;
+}
+
+/**
  * Claude Code Agent
  * Claude Code CLI를 서브프로세스로 실행하여 Task Tool과 Subagent 시스템 활용
  */
@@ -211,6 +237,27 @@ You have direct access to the user's active schedules listed above.
 - Use the related past conversations to provide context-aware responses
 - Focus on helping the user with their immediate needs
 
+## A2UI Dynamic UI (Optional)
+When you need to show structured information (lists, cards, forms, buttons), you can use A2UI markers.
+The UI components will be rendered appropriately on the user's device.
+
+**Available markers:**
+- [A2UI_SURFACE:surfaceId]componentsJSON[/A2UI_SURFACE] - Define UI components
+- [A2UI_DATA:modelId]dataJSON[/A2UI_DATA] - Set data model values
+
+**Example - Show flight options as cards:**
+\`\`\`
+[A2UI_SURFACE:main][{"id":"flight1","component":{"Card":{"title":{"literalString":"KE001 Seoul-Tokyo"},"children":{"explicitList":["f1-price","f1-btn"]}}}}][/A2UI_SURFACE]
+\`\`\`
+
+**Example - Set form data:**
+\`\`\`
+[A2UI_DATA:booking]{"date":"2026-03-15","destination":"Tokyo"}[/A2UI_DATA]
+\`\`\`
+
+Note: Only use A2UI when it genuinely improves the user experience (e.g., showing options, forms, lists).
+For simple text responses, just reply normally without A2UI.
+
 Please respond to the user's message:
 `.trim();
   }
@@ -296,7 +343,8 @@ Please respond to the user's message:
   private async processResponse(
     userId: string,
     userMessage: string,
-    response: string
+    response: string,
+    callbacks?: StreamingCallbacks
   ): Promise<void> {
     // 사용자 메시지 저장
     await this.memory.saveMessage(userId, 'user', userMessage);
@@ -349,16 +397,169 @@ Please respond to the user's message:
       }
     }
 
+    // A2UI 마커 추출 (모든 종류를 한 번에 찾아 순서 유지)
+    const a2uiMessages: A2UIAgentMessage[] = [];
+    const a2uiPattern =
+      /\[A2UI_(SURFACE|DATA):(\w+)\]([\s\S]*?)\[\/A2UI_\1\]/g;
+
+    for (const match of response.matchAll(a2uiPattern)) {
+      const [, markerType, id, jsonContent] = match;
+      try {
+        const parsedContent = JSON.parse(jsonContent.trim());
+
+        if (markerType === 'SURFACE') {
+          a2uiMessages.push({
+            type: 'surfaceUpdate',
+            surfaceId: id,
+            components: parsedContent,
+          });
+          log('info', `🎨 A2UI Surface: ${id}`);
+        } else if (markerType === 'DATA') {
+          a2uiMessages.push({
+            type: 'dataModelUpdate',
+            modelId: id,
+            data: parsedContent,
+          });
+          log('info', `📊 A2UI Data: ${id}`);
+        }
+      } catch (e) {
+        log('warn', `⚠️ A2UI ${markerType} parse error: ${e}`);
+      }
+    }
+
+    // A2UI 콜백 호출
+    if (a2uiMessages.length > 0 && callbacks?.onA2UI) {
+      callbacks.onA2UI(a2uiMessages);
+    }
+
     // 모든 마커 제거
     const cleanResponse = response
       .replace(/\[FACT:\w+:.+?\]/g, '')
       .replace(/\[SCHEDULE:(.+?):(.+?)\]/g, '')
       .replace(/\[SCHEDULE_ONCE:\d+:.+?\]/g, '')
       .replace(/\[CANCEL_SCHEDULE:.+?\]/g, '')
+      .replace(/\[A2UI_(SURFACE|DATA):\w+\][\s\S]*?\[\/A2UI_\1\]/g, '')
       .trim();
 
     // Assistant 응답 저장
     await this.memory.saveMessage(userId, 'assistant', cleanResponse);
+  }
+
+  /**
+   * 스트리밍 콜백을 지원하는 사용자 대화 (AG-UI 프로토콜)
+   */
+  async chatWithStreaming(
+    userId: string,
+    message: string,
+    callbacks: StreamingCallbacks,
+    options: ClaudeCodeOptions = {}
+  ): Promise<string> {
+    try {
+      // 1. 메모리에서 컨텍스트 로드 (벡터 검색 포함)
+      const context = await this.loadContext(userId, message);
+
+      // 2. 프롬프트 구성
+      const prompt = this.buildPrompt(message, context);
+
+      // 3. Claude Code CLI 실행 (스트리밍)
+      const response = await this.executeClaudeCodeWithStreaming(
+        prompt,
+        callbacks,
+        options
+      );
+
+      // 4. 응답 파싱 및 메모리 저장 (콜백 전달로 A2UI 지원)
+      await this.processResponse(userId, message, response, callbacks);
+
+      return response;
+    } catch (error) {
+      log('error', `❌ Chat with streaming failed: ${error}`);
+      if (callbacks.onError && error instanceof Error) {
+        callbacks.onError(error);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * 스트리밍 콜백과 함께 Claude Code CLI 실행
+   */
+  private async executeClaudeCodeWithStreaming(
+    prompt: string,
+    callbacks: StreamingCallbacks,
+    options: ClaudeCodeOptions
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const args: string[] = ['-p']; // print mode
+
+      // 옵션 추가
+      if (options.skipPermissions) {
+        args.push('--dangerously-skip-permissions');
+      }
+
+      if (options.model) {
+        args.push('--model', options.model);
+      }
+
+      log('debug', `🤖 Executing Claude Code (streaming) with prompt length: ${prompt.length}`);
+
+      // Claude Code CLI 실행
+      this.process = spawn('claude', args, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      // 프롬프트를 stdin으로 전달
+      if (this.process.stdin) {
+        this.process.stdin.write(prompt);
+        this.process.stdin.end();
+      }
+
+      let fullOutput = '';
+      let lastSnapshotLength = 0;
+
+      // stdout 스트리밍 처리
+      this.process.stdout?.on('data', (data) => {
+        const chunk = data.toString();
+        fullOutput += chunk;
+
+        // 콜백으로 델타 전달
+        if (callbacks.onTextContent) {
+          const delta = fullOutput.substring(lastSnapshotLength);
+          callbacks.onTextContent(delta, fullOutput);
+          lastSnapshotLength = fullOutput.length;
+        }
+      });
+
+      this.process.stderr?.on('data', (data) => {
+        log('debug', `Claude Code stderr: ${data.toString()}`);
+      });
+
+      this.process.on('close', (code) => {
+        this.process = null;
+
+        if (code !== 0) {
+          const error = new Error(`Claude Code failed with code ${code}`);
+          log('error', `❌ Claude Code failed with code ${code}`);
+          if (callbacks.onError) {
+            callbacks.onError(error);
+          }
+          reject(error);
+          return;
+        }
+
+        // 응답 추출
+        const response = this.extractResponse(fullOutput);
+        resolve(response);
+      });
+
+      this.process.on('error', (error) => {
+        log('error', `❌ Claude Code process error: ${error.message}`);
+        if (callbacks.onError) {
+          callbacks.onError(error);
+        }
+        reject(error);
+      });
+    });
   }
 
   /**

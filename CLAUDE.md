@@ -272,6 +272,7 @@ INTEGRATION_TESTS=true pnpm vitest run src/brain/memory.integration.test.ts
 
 ## Project Phases (All Complete)
 
+### Core System
 - [x] Phase 1: Memory System (SQLite + FTS5)
 - [x] Phase 2: Gateway Server (WebSocket)
 - [x] Phase 3: Claude Code Agent (CLI integration)
@@ -279,6 +280,61 @@ INTEGRATION_TESTS=true pnpm vitest run src/brain/memory.integration.test.ts
 - [x] Phase 5: Scheduler (node-cron)
 - [x] Phase 6: Daemon deployment (launchd for macOS)
 - [x] Phase 7: Vector Search (Moltbot integration) - Semantic memory retrieval
+
+### Protocol Integration (AG-UI / A2UI / A2A)
+- [x] Phase 8: AG-UI Event Streaming - Real-time event streaming for all channels
+- [x] Phase 9: Web Channel + A2UI - Web chat interface with A2UI full rendering
+- [x] Phase 10: Telegram Adaptive Renderer - A2UI → Telegram native mapping
+- [x] Phase 11: Telegram Web App - Mini App for complex A2UI forms
+- [x] Phase 12: A2A Multi-agent - Agent-to-agent protocol for external agent collaboration
+
+## Protocol Integration
+
+### AG-UI (Agent-User Interface)
+Real-time event streaming protocol for agent-to-user communication.
+
+**Files:**
+- `src/core/events.ts` - AG-UI event types and helpers
+- `src/core/a2ui.ts` - A2UI message wrapping utilities
+
+### A2UI (Agent-driven UI)
+Declarative UI specification for dynamic interface generation.
+
+**Files:**
+- `src/a2ui/types.ts` - A2UI component types
+- `src/a2ui/state.ts` - Data model state management
+- `src/channels/telegram-renderer.ts` - A2UI → Telegram native mapping
+- `ui/telegram-mini-app/` - Telegram Mini App for complex forms
+
+### A2A (Agent-to-Agent)
+Protocol for inter-agent communication and multi-agent workflows.
+
+**Files:**
+- `src/a2a/types.ts` - A2A protocol types (JSON-RPC 2.0)
+- `src/a2a/agent-card.ts` - Michael's AgentCard definition
+- `src/a2a/server.ts` - A2A server for incoming requests
+- `src/a2a/client.ts` - A2A client for calling other agents
+- `src/a2a/orchestrator.ts` - Multi-agent workflow orchestration
+
+**Usage:**
+```typescript
+// A2A Server
+const server = new A2AServer({ baseUrl: 'http://localhost:18789' });
+server.setHandler({
+  processMessage: async (message) => agent.chat(message),
+});
+
+// A2A Client
+const client = new A2AClient();
+const response = await client.chat('https://other-agent.example.com', 'Hello!');
+
+// Orchestrator (multi-agent workflow)
+const orchestrator = new A2AOrchestrator();
+orchestrator.registerAgent('calendar', 'https://calendar-agent.example.com');
+const result = await orchestrator.runWorkflow([
+  { agent: 'calendar', message: '내일 일정 확인해줘' },
+]);
+```
 
 ## Code Style Notes
 

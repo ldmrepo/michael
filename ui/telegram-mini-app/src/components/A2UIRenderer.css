@@ -1,0 +1,279 @@
+/**
+ * A2UI Renderer Styles
+ *
+ * Telegram-themed styles for A2UI components.
+ */
+
+.a2ui-renderer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Text */
+.a2ui-text {
+  margin: 0;
+}
+
+.a2ui-text--h1 {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.a2ui-text--h2 {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.a2ui-text--h3 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.a2ui-text--body {
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.a2ui-text--caption {
+  font-size: 14px;
+  color: var(--tg-theme-hint-color, #999);
+}
+
+.a2ui-text--label {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Button */
+.a2ui-button {
+  display: block;
+  width: 100%;
+  padding: 14px 24px;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.a2ui-button:active {
+  transform: scale(0.98);
+}
+
+.a2ui-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.a2ui-button--primary {
+  background: var(--tg-theme-button-color, #3390ec);
+  color: var(--tg-theme-button-text-color, #ffffff);
+}
+
+.a2ui-button--secondary {
+  background: var(--tg-theme-secondary-bg-color, #f0f0f0);
+  color: var(--tg-theme-text-color, #000000);
+}
+
+.a2ui-button--danger {
+  background: var(--tg-theme-destructive-text-color, #ff3b30);
+  color: #ffffff;
+}
+
+.a2ui-button--link {
+  background: transparent;
+  color: var(--tg-theme-link-color, #3390ec);
+  padding: 8px 0;
+}
+
+/* Image */
+.a2ui-image {
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+}
+
+/* Card */
+.a2ui-card {
+  background: var(--tg-theme-secondary-bg-color, #f5f5f5);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.a2ui-card__header {
+  padding: 16px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.a2ui-card__title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.a2ui-card__subtitle {
+  font-size: 14px;
+  color: var(--tg-theme-hint-color, #999);
+  margin-top: 4px;
+}
+
+.a2ui-card__content {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Row */
+.a2ui-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+/* Column */
+.a2ui-column {
+  display: flex;
+  flex-direction: column;
+}
+
+/* List */
+.a2ui-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.a2ui-list--bullet .a2ui-list-item::before {
+  content: '•';
+  margin-right: 8px;
+  color: var(--tg-theme-hint-color, #999);
+}
+
+.a2ui-list--number {
+  counter-reset: list-counter;
+}
+
+.a2ui-list--number .a2ui-list-item {
+  counter-increment: list-counter;
+}
+
+.a2ui-list--number .a2ui-list-item::before {
+  content: counter(list-counter) '.';
+  margin-right: 8px;
+  color: var(--tg-theme-hint-color, #999);
+}
+
+.a2ui-list-item {
+  display: flex;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.a2ui-list-item:last-child {
+  border-bottom: none;
+}
+
+/* Form Field */
+.a2ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.a2ui-field__label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--tg-theme-text-color, #000);
+}
+
+.a2ui-field__input,
+.a2ui-field__textarea,
+.a2ui-field__select {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  font-size: 16px;
+  background: var(--tg-theme-bg-color, #ffffff);
+  color: var(--tg-theme-text-color, #000);
+  transition: border-color 0.2s;
+}
+
+.a2ui-field__input:focus,
+.a2ui-field__textarea:focus,
+.a2ui-field__select:focus {
+  outline: none;
+  border-color: var(--tg-theme-button-color, #3390ec);
+}
+
+.a2ui-field__input:disabled,
+.a2ui-field__textarea:disabled,
+.a2ui-field__select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.a2ui-field__textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+
+/* Checkbox */
+.a2ui-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.a2ui-checkbox__input {
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+  accent-color: var(--tg-theme-button-color, #3390ec);
+}
+
+.a2ui-checkbox__label {
+  font-size: 16px;
+  cursor: pointer;
+}
+
+/* Divider */
+.a2ui-divider {
+  border: none;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  margin: 8px 0;
+}
+
+/* Theme: Dark */
+.a2ui-renderer--dark {
+  color: #ffffff;
+}
+
+.a2ui-renderer--dark .a2ui-card {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.a2ui-renderer--dark .a2ui-card__header {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+.a2ui-renderer--dark .a2ui-field__input,
+.a2ui-renderer--dark .a2ui-field__textarea,
+.a2ui-renderer--dark .a2ui-field__select {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.a2ui-renderer--dark .a2ui-list-item {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+.a2ui-renderer--dark .a2ui-divider {
+  border-top-color: rgba(255, 255, 255, 0.1);
+}
