@@ -6,11 +6,12 @@
 
 - 🌙 **24시간 깨어있기**: 데몬 프로세스로 항상 실행
 - 🧠 **영구 메모리**: 모든 대화와 정보를 기억 (SQLite + 벡터 검색)
-- 💬 **메시징 통합**: Telegram 메시징 앱 연동
+- 💬 **멀티 채널**: Telegram, 웹 채팅, REST API 지원
 - 📱 **Mini App**: Telegram Mini App으로 복잡한 폼 입력 지원
 - ⏰ **능동적 알림**: 스케줄에 따라 먼저 알림 전송
 - 🤖 **Claude Code 기반**: Claude Code CLI 사용 (API 키 불필요)
 - 🔍 **시맨틱 검색**: 벡터 임베딩으로 관련 대화 자동 검색
+- 💰 **실시간 금융 데이터**: 주식, 암호화폐, 환율 조회 (yfinance, CoinGecko)
 
 ## 중요: Claude Max vs Anthropic API
 
@@ -44,6 +45,11 @@
 │Channel │   │  Agent    │  │ (SQLite)│  │ (Cron)  │
 └────────┘   └───────────┘  └─────────┘  └─────────┘
 
+┌─────────────────────────────────────────────────────────────┐
+│                 Finance Agent :8001 (A2A)                    │
+│  yfinance (주식)  │  CoinGecko (암호화폐)  │  환율 API       │
+└─────────────────────────────────────────────────────────────┘
+
 ngrok tunnel (HTTPS) ─────► localhost:3000 (Mini App, A2A)
 ```
 
@@ -58,6 +64,9 @@ cd frontend && pnpm install && pnpm build && cd ..
 
 # Telegram Mini App 빌드 (선택)
 cd ui/telegram-mini-app && pnpm install && pnpm build && cd ../..
+
+# Python 의존성 (금융 데이터용)
+pip3 install yfinance
 
 # 환경 변수 설정
 cp .env.example .env
@@ -83,6 +92,9 @@ NGROK_AUTHTOKEN=<ngrok 인증 토큰>
 
 # 임베딩 설정 (선택)
 EMBEDDING_PROVIDER=local  # local, openai, gemini
+
+# 금융 데이터 (선택, fallback용)
+ALPHA_VANTAGE_API_KEY=<무료 API 키>
 ```
 
 ## 실행
@@ -96,14 +108,21 @@ pnpm dev
 # 터미널 2: 웹 프론트엔드 실행
 cd frontend && pnpm dev
 
-# 터미널 3: ngrok (Mini App HTTPS용, 선택)
+# 터미널 3: Finance Agent (선택)
+pnpm dev:finance
+
+# 터미널 4: ngrok (Mini App HTTPS용, 선택)
 ngrok http --url=your-domain.ngrok-free.dev 3000
 ```
 
-### 웹 프론트엔드 접속
+### 서비스 포트
 
-- **Frontend URL**: http://localhost:3001
-- **Backend API**: http://localhost:3000/api/*
+| 서비스 | 포트 | 설명 |
+|--------|------|------|
+| Frontend | 3001 | 웹 채팅 UI (Next.js) |
+| HTTP Server | 3000 | REST API, Mini App |
+| Gateway | 18789 | WebSocket 허브 |
+| Finance Agent | 8001 | A2A 금융 에이전트 |
 
 ### 프로덕션 빌드
 
@@ -146,15 +165,26 @@ michael/
 │   ├── channels/       # Telegram, Web Channel
 │   ├── scheduler/      # Cron 스케줄러
 │   ├── agent/          # Claude Code Agent
+│   ├── agents/         # 특화 에이전트
+│   │   ├── base/       # BaseA2UIAgentExecutor
+│   │   └── finance/    # Finance Agent (A2A 서버)
 │   ├── memory-new/     # 벡터 임베딩 시스템
 │   ├── a2ui/           # A2UI 타입 및 유틸리티
 │   └── a2a/            # A2A 프로토콜
-├── frontend/               # 웹 프론트엔드 (Next.js)
-│   ├── app/                # Next.js App Router
-│   ├── components/a2ui/    # A2UI 컴포넌트 렌더러
-│   └── lib/agui/           # AG-UI 클라이언트 라이브러리
+├── scripts/
+│   └── finance/        # 금융 API 스크립트 (yfinance, CoinGecko)
+├── frontend/           # 웹 프론트엔드 (Next.js)
+│   ├── app/            # Next.js App Router
+│   ├── components/a2ui/# A2UI 컴포넌트 렌더러
+│   └── lib/agui/       # AG-UI 클라이언트 라이브러리
 ├── ui/
 │   └── telegram-mini-app/  # Telegram Mini App (React)
+├── .claude/
+│   └── skills/         # Claude Code 스킬
+│       ├── finance/    # 금융 스킬
+│       ├── a2a-protocol/
+│       ├── a2ui/
+│       └── agui/
 ├── data/
 │   ├── memory.db       # 메인 DB (users, messages, facts, schedules)
 │   └── memory-index.db # 벡터 인덱스 DB (embeddings, chunks)
@@ -192,6 +222,26 @@ INTEGRATION_TESTS=true pnpm vitest run src/brain/memory.integration.test.ts
 "내 생일은 3월 15일이야" - 정보 기억
 "매일 9시에 알려줘" - 스케줄 설정
 ```
+
+### 금융 정보 질문 예시
+
+```
+"비트코인 현재가 알려줘"
+"애플 주가"
+"삼성전자 시세"
+"이더리움 가격"
+"달러 환율"
+"NVDA 주식 정보"
+```
+
+**지원하는 금융 데이터:**
+
+| 종류 | 예시 | 데이터 소스 |
+|------|------|------------|
+| 미국 주식 | AAPL, MSFT, NVDA, TSLA | yfinance |
+| 한국 주식 | 005930.KS (삼성전자) | yfinance |
+| 암호화폐 | bitcoin, ethereum, solana | CoinGecko |
+| 환율 | USD/KRW, EUR/USD | Frankfurter |
 
 ### Mini App 폼 플로우
 
@@ -236,7 +286,32 @@ curl -X POST http://localhost:3000/api/chat/stream \
 # JSON 응답 (비스트리밍)
 curl -X POST http://localhost:3000/api/chat \
   -H "Content-Type: application/json" \
-  -d '{"message": "안녕 마이클", "userId": "test"}'
+  -d '{"message": "비트코인 현재가", "userId": "test"}'
+```
+
+### Finance Agent A2A 호출
+
+```bash
+# Finance Agent 시작
+pnpm dev:finance
+
+# Agent Card 조회
+curl http://localhost:8001/.well-known/agent.json
+
+# A2A JSON-RPC 호출
+curl -X POST http://localhost:8001/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "1",
+    "method": "message/send",
+    "params": {
+      "message": {
+        "role": "user",
+        "parts": [{"type": "text", "text": "삼성전자 주가"}]
+      }
+    }
+  }'
 ```
 
 ## 로드맵
@@ -252,12 +327,14 @@ curl -X POST http://localhost:3000/api/chat \
 - [x] Phase 7: 벡터 검색 통합
 - [x] Phase 8-12: HTTP Server + Mini App
 - [x] Phase 13: 웹 프론트엔드 통합 (Next.js + AG-UI + A2UI)
+- [x] Phase 14: Finance Agent (실시간 금융 데이터)
 
 ### 진행 예정
 
-- [ ] A2A 프로토콜 완성 (외부 Agent 연동)
+- [ ] A2A Orchestrator 연동 (Finance Agent ↔ 메인 Agent)
 - [ ] 프로덕션 배포 (실제 도메인 + SSL)
 - [ ] 추가 채널 지원 (Slack, Discord)
+- [ ] 포트폴리오 분석 기능
 
 ## 문서
 
