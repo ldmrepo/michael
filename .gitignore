@@ -46,3 +46,17 @@ coverage/
 # Embedding model cache
 data/models/
 *.gguf
+
+# Next.js build
+frontend/.next/
+frontend/out/
+
+# Claude/Serena config (local)
+.serena/
+
+# Reference docs (local)
+reference/
+
+# Data directory (except .gitkeep)
+data/
+!data/.gitkeep

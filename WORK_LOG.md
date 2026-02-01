@@ -545,4 +545,194 @@ curl -X POST http://localhost:3000/api/chat \
 
 ---
 
-*마지막 업데이트: 2026-02-01*
+## Phase 14: Finance Agent 실시간 금융 데이터 통합 (2026-02-02)
+
+### 목표
+Finance Agent에 실시간 금융 데이터 조회 기능 추가 (주식, 암호화폐, 환율)
+
+### 구현 내용
+
+#### 1. API 스크립트 (`scripts/finance/`)
+
+| 파일 | 용도 | 데이터 소스 |
+|------|------|------------|
+| `fetch-stock.py` | 주식 시세 (Python) | yfinance |
+| `fetch-stock.sh` | 주식 시세 (Bash wrapper) | yfinance → Yahoo API → Alpha Vantage |
+| `fetch-stocks.sh` | 주요 주식 일괄 조회 | yfinance |
+| `fetch-crypto.sh` | 암호화폐 시세 | CoinGecko API |
+| `fetch-cryptos.sh` | 주요 암호화폐 일괄 | CoinGecko API |
+| `fetch-exchange.sh` | 환율 조회 | Frankfurter API |
+| `fetch-stock-alpha.sh` | Alpha Vantage fallback | Alpha Vantage API |
+
+#### 2. yfinance 통합
+
+Yahoo Finance 직접 API 호출은 Rate Limit 문제가 빈번하여, `yfinance` Python 라이브러리를 주 데이터 소스로 채택.
+
+```python
+# scripts/finance/fetch-stock.py
+import yfinance as yf
+
+def fetch_stock(symbol: str) -> dict:
+    ticker = yf.Ticker(symbol)
+    info = ticker.info
+    return {
+        "symbol": symbol,
+        "price": info.get("regularMarketPrice"),
+        "change": info.get("regularMarketChange"),
+        # ...
+    }
+```
+
+**Fallback 체인:**
+```
+yfinance (Python) → Yahoo Finance API → Alpha Vantage
+```
+
+#### 3. Finance Skill (`.claude/skills/finance/SKILL.md`)
+
+```yaml
+---
+name: finance
+description: |
+  금융 정보 조회 및 분석 스킬. 주식, 암호화폐 시세 조회, 환율 변환.
+allowed-tools: Bash(bash:*), Read
+---
+```
+
+스킬 로드 시 `!`command`` 문법으로 실시간 데이터 자동 주입:
+- 주요 암호화폐 현재가
+- USD/KRW 환율
+
+#### 4. Executor 수정 (`src/agents/finance/executor.ts`)
+
+- `executeClaudeCLI()` 메서드 override
+- `--allowedTools 'Bash(bash:*),Read'` 플래그 추가
+- `CLAUDE_PROJECT_DIR` 환경변수 설정
+
+```typescript
+protected async executeClaudeCLI(prompt: string): Promise<string> {
+  const args: string[] = [
+    '-p',
+    '--allowedTools', 'Bash(bash:*),Read',
+  ];
+
+  this.process = spawn('claude', args, {
+    env: {
+      ...process.env,
+      CLAUDE_PROJECT_DIR: process.cwd(),
+    },
+  });
+  // ...
+}
+```
+
+#### 5. TypeScript 타입 수정 (`src/agents/finance/tools.ts`)
+
+API 응답 타입 인터페이스 추가:
+- `CoinGeckoDetailResponse`
+- `CoinGeckoMarketItem`
+- `YahooChartResponse`
+- `ExchangeRateAPIResponse`
+
+### 테스트 결과
+
+#### API 스크립트 테스트
+```bash
+$ ./scripts/finance/fetch-stock.sh AAPL
+{"symbol":"AAPL","name":"Apple Inc.","price":259.48,"source":"yfinance"}
+
+$ ./scripts/finance/fetch-crypto.sh bitcoin
+{"id":"bitcoin","symbol":"btc","price_usd":77206,"change_24h":-4.52}
+
+$ ./scripts/finance/fetch-exchange.sh USD KRW
+{"from":"USD","to":"KRW","rate":1442.63}
+```
+
+#### Finance Agent A2A 서버 테스트
+```bash
+$ curl -X POST http://localhost:8001/ \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"message/send","params":{"message":{"role":"user","parts":[{"type":"text","text":"비트코인 현재가"}]}}}'
+
+# 결과: A2UI Card 컴포넌트로 시세 정보 렌더링
+```
+
+#### 메인 서비스 채팅 테스트
+```bash
+$ curl -X POST http://localhost:3000/api/chat \
+  -d '{"message":"애플 주가 알려줘","userId":"test"}'
+
+# 결과: $259.07, 52주 최고/최저, 거래량, 애널리스트 목표가 등 상세 정보
+```
+
+### 수정/추가된 파일
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `scripts/finance/fetch-stock.py` | **신규** - yfinance 기반 주식 조회 |
+| `scripts/finance/fetch-stock.sh` | **수정** - yfinance 우선 + fallback 체인 |
+| `scripts/finance/fetch-stocks.sh` | **수정** - 배치 조회 최적화 |
+| `scripts/finance/fetch-crypto.sh` | **신규** - CoinGecko API |
+| `scripts/finance/fetch-cryptos.sh` | **신규** - 암호화폐 일괄 조회 |
+| `scripts/finance/fetch-exchange.sh` | **신규** - 환율 조회 |
+| `scripts/finance/fetch-stock-alpha.sh` | **신규** - Alpha Vantage fallback |
+| `.claude/skills/finance/SKILL.md` | **신규** - Finance 스킬 정의 |
+| `src/agents/finance/executor.ts` | **수정** - allowedTools 플래그 추가 |
+| `src/agents/finance/tools.ts` | **수정** - TypeScript 타입 에러 수정 |
+| `.env.example` | **수정** - ALPHA_VANTAGE_API_KEY 추가 |
+
+### 환경 변수 추가
+
+```bash
+# .env.example 추가 항목
+ALPHA_VANTAGE_API_KEY=your_api_key_here  # 선택 (fallback용)
+```
+
+### 의존성
+
+- `yfinance` - Python 패키지 (주식 데이터)
+- `curl`, `jq` - Bash 스크립트용 (macOS 기본)
+
+### 데이터 소스 요약
+
+| 데이터 | 소스 | Rate Limit | 비용 |
+|--------|------|-----------|------|
+| 주식 (미국/한국) | yfinance | 없음 | 무료 |
+| 암호화폐 | CoinGecko | 10-30 req/min | 무료 |
+| 환율 | Frankfurter | 없음 | 무료 |
+| 주식 (fallback) | Alpha Vantage | 5 req/min | 무료 (API key 필요) |
+
+---
+
+## 현재 상태 요약 (2026-02-02 최신)
+
+### 작동 중인 기능
+- Gateway (WebSocket, port 18789)
+- HTTP Server (port 3000)
+  - SSE Chat Stream (`/api/chat/stream`)
+  - JSON Chat (`/api/chat`)
+- Memory (SQLite + 벡터 검색)
+- Claude Agent (CLI `-p` 모드)
+- Telegram 봇 (양방향 대화 + Mini App)
+- 웹 프론트엔드 (Next.js, port 3001)
+- Scheduler (반복 cron + 1회 setTimeout)
+- 벡터 기반 시맨틱 메모리 검색
+- **Finance Agent** (실시간 금융 데이터, port 8001) ✅ 신규
+
+### 서비스 포트 현황
+
+| 서비스 | 포트 | 프로토콜 |
+|--------|------|---------|
+| Gateway | 18789 | WebSocket |
+| HTTP Server | 3000 | HTTP |
+| Web Frontend | 3001 | HTTP |
+| Finance Agent | 8001 | HTTP (A2A) |
+
+### 다음 작업 제안
+1. **Finance Agent 고도화**: 포트폴리오 분석, 차트 생성
+2. **A2A Orchestrator 연동**: Finance Agent를 메인 Agent와 연동
+3. **프로덕션 배포**: 실제 도메인 + SSL
+
+---
+
+*마지막 업데이트: 2026-02-02*
