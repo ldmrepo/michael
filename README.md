@@ -25,30 +25,38 @@
 ## 아키텍처
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                HTTP Server :3000                     │
-│  /webapp/* (Mini App)  /api/*  /health              │
-└─────────────────────────┬───────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────┐
-│              Gateway (WebSocket) :18789              │
-└───┬─────────────┬─────────────┬─────────────┬───────┘
+┌─────────────────────────────────────────────────────────────┐
+│                       Frontend :3001                         │
+│                    (Next.js + A2UI Renderer)                 │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ /api/chat/stream (SSE)
+┌──────────────────────────▼──────────────────────────────────┐
+│                    HTTP Server :3000                         │
+│  /webapp/* (Mini App)  /api/chat/*  /api/webapp/*  /health  │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────┐
+│                 Gateway (WebSocket) :18789                   │
+└───┬─────────────┬─────────────┬─────────────┬───────────────┘
     │             │             │             │
 ┌───▼───┐   ┌─────▼─────┐  ┌────▼────┐  ┌────▼────┐
 │Telegram│   │  Claude   │  │ Memory  │  │Scheduler│
 │Channel │   │  Agent    │  │ (SQLite)│  │ (Cron)  │
 └────────┘   └───────────┘  └─────────┘  └─────────┘
 
-ngrok tunnel (HTTPS) ─────► localhost:3000
+ngrok tunnel (HTTPS) ─────► localhost:3000 (Mini App, A2A)
 ```
 
 ## 설치
 
 ```bash
-# 의존성 설치
+# 백엔드 의존성 설치
 pnpm install
 
-# Mini App 빌드
+# 웹 프론트엔드 빌드
+cd frontend && pnpm install && pnpm build && cd ..
+
+# Telegram Mini App 빌드 (선택)
 cd ui/telegram-mini-app && pnpm install && pnpm build && cd ../..
 
 # 환경 변수 설정
@@ -82,21 +90,33 @@ EMBEDDING_PROVIDER=local  # local, openai, gemini
 ### 개발 모드
 
 ```bash
-# 1. ngrok 실행 (별도 터미널, Mini App용)
-ngrok http --url=your-domain.ngrok-free.dev 3000
-
-# 2. 서버 실행 (hot reload)
+# 터미널 1: 백엔드 실행
 pnpm dev
+
+# 터미널 2: 웹 프론트엔드 실행
+cd frontend && pnpm dev
+
+# 터미널 3: ngrok (Mini App HTTPS용, 선택)
+ngrok http --url=your-domain.ngrok-free.dev 3000
 ```
+
+### 웹 프론트엔드 접속
+
+- **Frontend URL**: http://localhost:3001
+- **Backend API**: http://localhost:3000/api/*
 
 ### 프로덕션 빌드
 
 ```bash
-# TypeScript 빌드
+# TypeScript 빌드 (백엔드)
 pnpm build
+
+# 프론트엔드 빌드
+cd frontend && pnpm build && cd ..
 
 # 빌드된 파일 실행
 pnpm start
+cd frontend && pnpm start  # 별도 터미널
 ```
 
 ### 데몬 모드 (24시간 실행)
@@ -121,14 +141,18 @@ bash scripts/uninstall-daemon.sh
 ```
 michael/
 ├── src/
-│   ├── core/           # Gateway, HTTP Server
+│   ├── core/           # Gateway, HTTP Server, SSE, AG-UI Events
 │   ├── brain/          # Memory (SQLite + 벡터 검색)
-│   ├── channels/       # Telegram Channel
+│   ├── channels/       # Telegram, Web Channel
 │   ├── scheduler/      # Cron 스케줄러
 │   ├── agent/          # Claude Code Agent
 │   ├── memory-new/     # 벡터 임베딩 시스템
 │   ├── a2ui/           # A2UI 타입 및 유틸리티
 │   └── a2a/            # A2A 프로토콜
+├── frontend/               # 웹 프론트엔드 (Next.js)
+│   ├── app/                # Next.js App Router
+│   ├── components/a2ui/    # A2UI 컴포넌트 렌더러
+│   └── lib/agui/           # AG-UI 클라이언트 라이브러리
 ├── ui/
 │   └── telegram-mini-app/  # Telegram Mini App (React)
 ├── data/
@@ -177,6 +201,17 @@ INTEGRATION_TESTS=true pnpm vitest run src/brain/memory.integration.test.ts
 4. "예약하기" 버튼 클릭
 5. 봇이 제출된 데이터 수신
 
+### 웹 프론트엔드로 사용하기
+
+1. 백엔드 실행: `pnpm dev`
+2. 프론트엔드 실행: `cd frontend && pnpm dev`
+3. 브라우저에서 http://localhost:3001 접속
+4. 채팅창에 메시지 입력
+
+**AG-UI 프로토콜 지원:**
+- 실시간 스트리밍 응답
+- A2UI 동적 UI 렌더링 (카드, 버튼, 폼 등)
+
 ### WebSocket으로 직접 연결
 
 ```bash
@@ -188,6 +223,20 @@ wscat -c ws://127.0.0.1:18789
 
 # 메시지 전송
 > {"from": "cli", "to": "agent", "userId": "test", "content": "Hello Michael"}
+```
+
+### REST API로 직접 호출
+
+```bash
+# SSE 스트리밍 (AG-UI)
+curl -X POST http://localhost:3000/api/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"message": "안녕 마이클", "userId": "test"}'
+
+# JSON 응답 (비스트리밍)
+curl -X POST http://localhost:3000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "안녕 마이클", "userId": "test"}'
 ```
 
 ## 로드맵
@@ -202,6 +251,7 @@ wscat -c ws://127.0.0.1:18789
 - [x] Phase 6: 데몬화 (launchd)
 - [x] Phase 7: 벡터 검색 통합
 - [x] Phase 8-12: HTTP Server + Mini App
+- [x] Phase 13: 웹 프론트엔드 통합 (Next.js + AG-UI + A2UI)
 
 ### 진행 예정
 

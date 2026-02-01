@@ -403,11 +403,145 @@ ngrok tunnel
   └─> HTTPS → localhost:3000
 ```
 
+---
+
+## Phase 13: 웹 프론트엔드 통합 (2026-02-01)
+
+### 목표
+a2ui-demo 프로젝트의 프론트엔드를 Michael에 통합하여 웹 채팅 인터페이스 제공
+
+### 구현 내용
+
+#### 1. HTTP Server SSE 엔드포인트 추가 (`src/core/http-server.ts`)
+- `POST /api/chat/stream` — AG-UI SSE 스트리밍 응답
+- `POST /api/chat` — JSON 응답 (비스트리밍)
+- Agent 연결 및 스트리밍 콜백 처리
+
+```typescript
+// SSE 스트리밍 흐름
+1. RUN_STARTED
+2. TEXT_MESSAGE_START
+3. TEXT_MESSAGE_CONTENT × N (스트리밍 청크)
+4. TEXT_MESSAGE_END
+5. TOOL_CALL_START (A2UI가 있는 경우)
+6. TOOL_CALL_RESULT × N (A2UI 메시지)
+7. TOOL_CALL_END
+8. RUN_FINISHED
+```
+
+#### 2. Frontend 통합 (`frontend/`)
+a2ui-demo의 프론트엔드를 복사 후 Michael에 맞게 수정
+
+**수정 내용:**
+| 파일 | 변경 |
+|------|------|
+| `package.json` | 프로젝트명 변경 (`michael-frontend`), 포트 변경 (3001) |
+| `next.config.js` | API 프록시 대상 변경 (8501 → 3000) |
+| `app/layout.tsx` | 메타데이터 변경 (Michael) |
+| `app/page.tsx` | UI 브랜딩 변경 (AI Travel Squad → Michael) |
+
+**컴포넌트 구조:**
+```
+frontend/
+├── app/
+│   ├── layout.tsx      # 메타데이터, HTML 구조
+│   ├── page.tsx        # 메인 채팅 페이지
+│   └── globals.css     # Tailwind CSS
+├── components/a2ui/    # A2UI 렌더러
+│   ├── A2UIRenderer.tsx
+│   ├── renderers/      # 개별 컴포넌트 렌더러
+│   └── types.ts
+└── lib/agui/           # AG-UI 클라이언트
+    ├── client.ts       # AGUIClient 클래스
+    ├── parser.ts       # SSE 파서
+    └── types.ts        # 이벤트 타입
+```
+
+#### 3. 아키텍처
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                       Frontend :3001                         │
+│                    (Next.js + A2UI Renderer)                 │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ POST /api/chat/stream (SSE)
+┌──────────────────────────▼──────────────────────────────────┐
+│                    HTTP Server :3000                         │
+│          /api/chat/stream  /api/chat  /webapp/*             │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                    Claude Code Agent
+```
+
+### 사용법
+
+```bash
+# 터미널 1: 백엔드 시작
+pnpm dev
+
+# 터미널 2: 프론트엔드 시작
+cd frontend && pnpm dev
+
+# 브라우저에서 접속
+open http://localhost:3001
+```
+
+### 테스트 방법
+
+```bash
+# SSE 스트리밍 테스트
+curl -X POST http://localhost:3000/api/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"message": "안녕 마이클", "userId": "test"}'
+
+# JSON 응답 테스트
+curl -X POST http://localhost:3000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "안녕", "userId": "test"}'
+```
+
+### 수정/추가된 파일
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `src/core/http-server.ts` | SSE 엔드포인트 추가, Agent 연결 |
+| `src/index.ts` | HTTP 서버에 Agent 연결 |
+| `frontend/package.json` | 프로젝트명, 포트 변경 |
+| `frontend/next.config.js` | API 프록시 변경 |
+| `frontend/app/layout.tsx` | 메타데이터 변경 |
+| `frontend/app/page.tsx` | UI 브랜딩 변경 |
+| `README.md` | 웹 프론트엔드 사용법 추가 |
+
+---
+
+## 현재 상태 요약 (2026-02-01 최신)
+
+### 작동 중인 기능
+- Gateway (WebSocket, port 18789)
+- HTTP Server (port 3000)
+  - SSE Chat Stream (`/api/chat/stream`) ✅ 신규
+  - JSON Chat (`/api/chat`) ✅ 신규
+- Memory (SQLite + 벡터 검색)
+- Claude Agent (CLI `-p` 모드)
+- Telegram 봇 (양방향 대화 + Mini App)
+- **웹 프론트엔드** (Next.js, port 3001) ✅ 신규
+- Scheduler (반복 cron + 1회 setTimeout)
+- 벡터 기반 시맨틱 메모리 검색
+- A2UI Mini App 폼 제출
+
+### 다중 채널 지원
+
+| 채널 | 포트/프로토콜 | 기능 |
+|------|--------------|------|
+| Web Frontend | :3001 (HTTP) | 웹 채팅, A2UI 렌더링 |
+| Telegram Bot | Polling | 메시지, Mini App |
+| WebSocket | :18789 (WS) | 직접 연결 |
+| REST API | :3000 (HTTP) | SSE/JSON 응답 |
+
 ### 다음 작업 제안
 1. **프로덕션 배포**: ngrok 대신 실제 도메인 + SSL
-2. **Telegraf 이슈 조사**: `bot.launch()` 폴링 실패 근본 원인
-3. **A2A 프로토콜 완성**: 외부 Agent 연동
-4. **에러 처리 강화**: Mini App 에러 시 사용자 피드백
+2. **A2A 프로토콜 완성**: 외부 Agent 연동
+3. **웹 프론트엔드 기능 강화**: 스케줄 관리 UI, 메모리 검색 UI
 
 ---
 

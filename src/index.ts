@@ -50,6 +50,9 @@ class Michael {
       baseUrl: webappUrl,
     });
 
+    // HTTP 서버에 Agent 연결 (SSE 스트리밍용)
+    this.httpServer.setAgent(this.agent);
+
     log('info', '🚀 Michael initialized');
   }
 
