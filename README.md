@@ -12,6 +12,7 @@
 - 🤖 **Claude Code 기반**: Claude Code CLI 사용 (API 키 불필요)
 - 🔍 **시맨틱 검색**: 벡터 임베딩으로 관련 대화 자동 검색
 - 💰 **실시간 금융 데이터**: 주식, 암호화폐, 환율 조회 (yfinance, CoinGecko)
+- 🧘 **명상 생성기**: 맞춤형 명상 스크립트 생성 및 TTS 음성 변환 (OpenAI TTS)
 
 ## 중요: Claude Max vs Anthropic API
 
@@ -182,6 +183,7 @@ michael/
 ├── .claude/
 │   └── skills/         # Claude Code 스킬
 │       ├── finance/    # 금융 스킬
+│       ├── meditation/ # 명상 생성 스킬
 │       ├── a2a-protocol/
 │       ├── a2ui/
 │       └── agui/
@@ -222,6 +224,29 @@ INTEGRATION_TESTS=true pnpm vitest run src/brain/memory.integration.test.ts
 "내 생일은 3월 15일이야" - 정보 기억
 "매일 9시에 알려줘" - 스케줄 설정
 ```
+
+### 명상 생성 예시
+
+```
+"5분 수면 명상 만들어줘"
+"집중력 향상 3분 명상"
+"스트레스 해소 명상 10분"
+"아침 명상 5분"
+```
+
+**지원하는 명상 유형:**
+
+| 유형 | 설명 |
+|------|------|
+| 수면 (sleep) | 깊은 수면을 위한 릴렉싱 가이드 |
+| 집중 (focus) | 업무/학습 집중력 향상 |
+| 스트레스 (stress) | 긴장 완화 및 마음 진정 |
+| 아침 (morning) | 하루 시작을 위한 에너지 충전 |
+| 마음챙김 (mindfulness) | 현재 순간에 집중 |
+
+**시간 옵션:** 3분, 5분, 10분
+
+**TTS 음성:** nova (기본, 차분한 여성), shimmer, onyx, alloy
 
 ### 금융 정보 질문 예시
 
@@ -328,6 +353,7 @@ curl -X POST http://localhost:8001/ \
 - [x] Phase 8-12: HTTP Server + Mini App
 - [x] Phase 13: 웹 프론트엔드 통합 (Next.js + AG-UI + A2UI)
 - [x] Phase 14: Finance Agent (실시간 금융 데이터)
+- [x] Phase 15: Meditation Generator (명상 스크립트 + OpenAI TTS)
 
 ### 진행 예정
 

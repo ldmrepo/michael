@@ -84,8 +84,9 @@ export class ClaudeCodeAgent {
       // 2. 프롬프트 구성
       const prompt = this.buildPrompt(message, context);
 
-      // 3. Claude Code CLI 실행
-      const response = await this.executeClaudeCode(prompt, options);
+      // 3. Claude Code CLI 실행 (비대화형 모드에서는 권한 프롬프트 건너뛰기)
+      const cliOptions = { skipPermissions: true, ...options };
+      const response = await this.executeClaudeCode(prompt, cliOptions);
 
       // 4. 응답 파싱 및 메모리 저장
       await this.processResponse(userId, message, response);
@@ -461,11 +462,12 @@ Please respond to the user's message:
       // 2. 프롬프트 구성
       const prompt = this.buildPrompt(message, context);
 
-      // 3. Claude Code CLI 실행 (스트리밍)
+      // 3. Claude Code CLI 실행 (스트리밍, 비대화형 모드에서는 권한 프롬프트 건너뛰기)
+      const cliOptions = { skipPermissions: true, ...options };
       const response = await this.executeClaudeCodeWithStreaming(
         prompt,
         callbacks,
-        options
+        cliOptions
       );
 
       // 4. 응답 파싱 및 메모리 저장 (콜백 전달로 A2UI 지원)

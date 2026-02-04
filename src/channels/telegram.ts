@@ -140,7 +140,7 @@ export class TelegramChannel {
   /**
    * Gateway 메시지 처리
    */
-  private handleGatewayMessage(data: WebSocket.Data): void {
+  private async handleGatewayMessage(data: WebSocket.Data): Promise<void> {
     try {
       const message: GatewayMessage = JSON.parse(data.toString());
 
@@ -162,6 +162,18 @@ export class TelegramChannel {
         return;
       }
 
+      // 오디오 파일 마커 처리: [AUDIO:/path/to/file.mp3]
+      const audioMatch = message.content.match(/\[AUDIO:([^\]]+)\]/);
+      if (audioMatch) {
+        const audioPath = audioMatch[1];
+        const textContent = message.content.replace(/\[AUDIO:[^\]]+\]/, '').trim();
+        if (textContent) {
+          await this.sendMessage(chatId, textContent);
+        }
+        await this.sendAudio(chatId, audioPath);
+        return;
+      }
+
       // 레거시: 단순 메시지 전송
       this.sendMessage(chatId, message.content);
 
@@ -173,7 +185,7 @@ export class TelegramChannel {
   /**
    * AG-UI 이벤트 처리
    */
-  private handleAGUIEvent(message: GatewayMessage, chatId: number): void {
+  private async handleAGUIEvent(message: GatewayMessage, chatId: number): Promise<void> {
     switch (message.eventType) {
       case 'RUN_STARTED':
         // 타이핑 인디케이터 시작
@@ -195,7 +207,18 @@ export class TelegramChannel {
         // 메시지 완료 - 실제 메시지 전송
         this.stopTypingIndicator(chatId);
         if (message.content) {
-          this.sendMessage(chatId, message.content);
+          // 오디오 파일 마커 처리: [AUDIO:/path/to/file.mp3]
+          const audioMatch = message.content.match(/\[AUDIO:([^\]]+)\]/);
+          if (audioMatch) {
+            const audioPath = audioMatch[1];
+            const textContent = message.content.replace(/\[AUDIO:[^\]]+\]/, '').trim();
+            if (textContent) {
+              await this.sendMessage(chatId, textContent);
+            }
+            await this.sendAudio(chatId, audioPath);
+          } else {
+            await this.sendMessage(chatId, message.content);
+          }
         }
         log('debug', `✅ Text message end for chat ${chatId}`);
         break;
@@ -320,6 +343,23 @@ export class TelegramChannel {
       await this.bot.telegram.sendPhoto(chatId, url, { caption });
     } catch (error) {
       log('error', `❌ Failed to send Telegram photo: ${error}`);
+    }
+  }
+
+  /**
+   * Telegram으로 오디오 파일 전송
+   */
+  private async sendAudio(chatId: number, audioPath: string, caption?: string, title?: string): Promise<void> {
+    try {
+      const { Input } = await import('telegraf');
+      await this.bot.telegram.sendAudio(chatId, Input.fromLocalFile(audioPath), {
+        caption,
+        title: title || 'Meditation',
+        performer: 'Michael',
+      });
+      log('debug', `🎵 Sent audio to Telegram: ${chatId}, file: ${audioPath}`);
+    } catch (error) {
+      log('error', `❌ Failed to send Telegram audio: ${error}`);
     }
   }
 
