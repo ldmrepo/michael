@@ -1,0 +1,86 @@
+{
+  "name": "tutorial",
+  "display_name": "정보형",
+  "description": "꿀팁, 노하우 전달 콘텐츠",
+  "hook_format": "이거 모르면 손해! {주제}",
+  "structure": "문제 → 해결책 → 결과",
+  "emotions": ["curiosity"],
+  "themes": ["Tech", "Daily", "Finance", "Health", "Beauty"],
+  "beat_sheet": {
+    "hook": {
+      "duration": 3,
+      "description": "'이거 알면 인생 바뀝니다' 스타일 오프닝",
+      "visual": "attention-grabbing text or result preview",
+      "audio": "clear hook statement, curiosity trigger"
+    },
+    "setup": {
+      "duration": 10,
+      "description": "문제 상황 또는 기존 방법의 불편함 제시",
+      "visual": "problem demonstration, before state",
+      "audio": "empathetic narration, relatable pain point"
+    },
+    "development": {
+      "duration": 30,
+      "description": "단계별 해결책 시연",
+      "visual": "step-by-step demonstration, clear focus",
+      "audio": "instructional narration, step cues"
+    },
+    "climax": {
+      "duration": 10,
+      "description": "결과물 또는 효과 보여주기",
+      "visual": "satisfying result, before/after comparison",
+      "audio": "music swell, achievement sound"
+    },
+    "resolution": {
+      "duration": 7,
+      "description": "마무리 팁 + 더 많은 팁 예고",
+      "visual": "summary text or face-to-camera",
+      "audio": "closing statement, follow CTA"
+    }
+  },
+  "continuity": {
+    "color_palette": "clean, bright tones, professional look",
+    "lighting_setup": "soft even lighting, no harsh shadows",
+    "time_of_day": "daylight or studio",
+    "camera_style": "steady shots with clear focus, smooth transitions",
+    "audio_theme": "upbeat background with clear narration"
+  },
+  "shot_styles": {
+    "hook": {
+      "optics": "close-up on result or text",
+      "motion": "quick reveal",
+      "lighting": "bright, attention-grabbing",
+      "style": "clean, professional"
+    },
+    "demonstration": {
+      "optics": "medium to close-up, hands visible",
+      "motion": "smooth, follows action",
+      "lighting": "bright, shadow-free",
+      "style": "clear, instructional"
+    },
+    "detail": {
+      "optics": "macro close-up",
+      "motion": "slow dolly, highlight detail",
+      "lighting": "focused, detail-revealing",
+      "style": "precise, informative"
+    },
+    "result": {
+      "optics": "wide to medium, full reveal",
+      "motion": "slow reveal or comparison",
+      "lighting": "bright, flattering",
+      "style": "satisfying, conclusive"
+    }
+  },
+  "audio_suggestions": {
+    "background_music": "upbeat, positive, not distracting",
+    "sound_effects": ["step indicator", "success chime", "subtle transitions"],
+    "voice_style": "clear, friendly, authoritative, good pacing"
+  },
+  "example_hooks": [
+    "이거 모르면 손해",
+    "99%가 모르는 꿀팁",
+    "이렇게 하면 됩니다",
+    "진짜 쉬운 방법 알려드림",
+    "이것만 알면 끝"
+  ]
+}

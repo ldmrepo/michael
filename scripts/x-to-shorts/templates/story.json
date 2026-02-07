@@ -1,0 +1,86 @@
+{
+  "name": "story",
+  "display_name": "스토리형",
+  "description": "일상 에피소드, 스토리텔링 콘텐츠",
+  "hook_format": "어제 {상황}했는데...",
+  "structure": "상황 → 전개 → 반전",
+  "emotions": ["joy", "surprise", "neutral"],
+  "themes": ["Daily", "Entertainment", "Travel", "Food"],
+  "beat_sheet": {
+    "hook": {
+      "duration": 3,
+      "description": "호기심 유발하는 일상 순간으로 시작",
+      "visual": "intriguing opening shot, curiosity trigger",
+      "audio": "story opening, conversational tone"
+    },
+    "setup": {
+      "duration": 12,
+      "description": "배경 상황 설명, 캐릭터/장소 소개",
+      "visual": "establishing shot, context setting",
+      "audio": "narration building context, ambient sounds"
+    },
+    "development": {
+      "duration": 25,
+      "description": "이야기 전개, 점점 고조되는 텐션",
+      "visual": "action sequence, building moments",
+      "audio": "narration with building music, emotional cues"
+    },
+    "climax": {
+      "duration": 12,
+      "description": "예상치 못한 반전 또는 하이라이트",
+      "visual": "peak moment, dramatic reveal",
+      "audio": "music peak, reaction sounds"
+    },
+    "resolution": {
+      "duration": 8,
+      "description": "에필로그, 교훈 또는 웃긴 마무리",
+      "visual": "closing shot, reflection moment",
+      "audio": "wind down, conversational closing"
+    }
+  },
+  "continuity": {
+    "color_palette": "warm, relatable tones, authentic feel",
+    "lighting_setup": "natural ambient lighting, situational",
+    "time_of_day": "varies by story, authentic to narrative",
+    "camera_style": "vlog-style, handheld feel, POV shots",
+    "audio_theme": "storytelling narration with mood music"
+  },
+  "shot_styles": {
+    "hook": {
+      "optics": "POV or close-up, intriguing angle",
+      "motion": "organic, authentic movement",
+      "lighting": "natural, situational",
+      "style": "vlog-like, relatable"
+    },
+    "establishing": {
+      "optics": "wide shot, location reveal",
+      "motion": "slow pan or dolly",
+      "lighting": "natural ambient",
+      "style": "cinematic but authentic"
+    },
+    "action": {
+      "optics": "varied angles, following action",
+      "motion": "dynamic, matches energy",
+      "lighting": "natural, adaptive",
+      "style": "engaging, immersive"
+    },
+    "climax": {
+      "optics": "dramatic angle, emphasis",
+      "motion": "slow motion or quick cut",
+      "lighting": "dramatic if possible",
+      "style": "impactful, memorable"
+    }
+  },
+  "audio_suggestions": {
+    "background_music": "mood-matching, emotional arc",
+    "sound_effects": ["ambient environment", "subtle transitions", "reaction sounds"],
+    "voice_style": "conversational, authentic, emotional range"
+  },
+  "example_hooks": [
+    "어제 있었던 일인데",
+    "이거 진짜 실화임",
+    "오늘 출근하다가",
+    "이런 적 있어요?",
+    "방금 겪은 일"
+  ]
+}

@@ -53,9 +53,24 @@ frontend/out/
 
 # Claude/Serena config (local)
 .serena/
+.opencode/
+.playwright-mcp/
+
+# Google Cloud SDK (local install)
+google-cloud-sdk/
+
+# Python cache
+__pycache__/
 
 # Reference docs (local)
 reference/
+
+# Temporary debug screenshots
+*.png
+
+# OAuth credentials and tokens
+credentials.json
+token.json
 
 # Data directory (except .gitkeep)
 data/

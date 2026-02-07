@@ -1,0 +1,203 @@
+{
+  "version": "2.0",
+  "description": "YouTube Shorts 프롬프트 템플릿 (2026 트렌드 최적화)",
+
+  "veo_prompt_structure": {
+    "formula": "Subject + Action + Scene + Camera Movement + Lighting + Style + Audio",
+    "8_point_scaffold": ["subject", "emotion", "optics", "motion", "lighting", "style", "audio", "continuity"]
+  },
+
+  "camera_movements": {
+    "dynamic": ["slow pan", "tracking shot", "dolly zoom", "crane shot", "steadicam follow"],
+    "static": ["locked off", "tripod shot", "fixed frame"],
+    "creative": ["dutch angle", "POV shot", "overhead shot", "low angle hero shot", "aerial view"],
+    "transitions": ["whip pan", "match cut", "morph transition", "seamless zoom"]
+  },
+
+  "lighting_moods": {
+    "warm": ["golden hour sunlight", "warm candlelight", "sunset orange glow", "cozy ambient light"],
+    "cool": ["blue hour twilight", "moonlit scene", "cool fluorescent", "overcast diffused"],
+    "dramatic": ["dramatic rim lighting", "high contrast chiaroscuro", "spotlight effect", "silhouette backlit"],
+    "natural": ["soft natural daylight", "dappled forest light", "bright midday sun", "cloudy soft box"]
+  },
+
+  "visual_styles": {
+    "cinematic": "cinematic color grading, shallow depth of field, film grain, 24fps motion blur",
+    "vibrant": "high saturation, vivid colors, punchy contrast, HDR look",
+    "minimal": "clean aesthetic, muted tones, minimalist composition, negative space",
+    "retro": "vintage film look, warm color cast, light leaks, nostalgic feel",
+    "dark_moody": "desaturated colors, deep shadows, atmospheric haze, noir inspired"
+  },
+
+  "hook_templates": {
+    "question": {
+      "description": "질문으로 시작하여 뇌가 자동으로 답을 찾게 함",
+      "examples": [
+        "Did you know that {surprising_fact}?",
+        "What if I told you {unexpected_claim}?",
+        "Why does {common_thing} actually {surprising_behavior}?"
+      ],
+      "visual": "Close-up on intriguing object or face with questioning expression, slight camera push-in"
+    },
+    "shock": {
+      "description": "충격적 사실로 스크롤 멈춤 유도",
+      "examples": [
+        "99% of people don't know this about {topic}",
+        "This changes everything about {topic}",
+        "I was today years old when I learned {fact}"
+      ],
+      "visual": "High contrast dramatic shot, quick zoom or whip pan, bold text overlay"
+    },
+    "direct_address": {
+      "description": "직접 호출로 즉각적 주목",
+      "examples": [
+        "Stop scrolling - you need to see this",
+        "If you're a {target_audience}, watch this",
+        "This is your sign to {action}"
+      ],
+      "visual": "Direct eye contact to camera, hand gesture pointing, breaking fourth wall"
+    },
+    "pattern_interrupt": {
+      "description": "예상치 못한 시작으로 패턴 파괴",
+      "examples": [
+        "Starting mid-action or mid-sentence",
+        "Unexpected sound or visual",
+        "Contradiction or impossible scenario"
+      ],
+      "visual": "Jarring cut, unusual angle, unexpected color palette, visual contradiction"
+    },
+    "transformation": {
+      "description": "변화/결과 미리 보여주기",
+      "examples": [
+        "Watch this {thing} transform into {result}",
+        "From {before_state} to {after_state} in {time}",
+        "The difference is insane"
+      ],
+      "visual": "Split screen or quick before/after cut, satisfying transition"
+    }
+  },
+
+  "scene_templates": {
+    "educational": {
+      "structure": "Hook (0-3s) → Problem (3-10s) → Solution Steps (10-45s) → Result (45-55s) → CTA (55-60s)",
+      "prompt_template": "Scene 1 (0-3s): {hook_visual}, close-up with dramatic lighting, immediate visual interest.\nScene 2 (3-10s): Wide shot establishing {problem_context}, slight camera movement, {mood} atmosphere.\nScene 3 (10-25s): Medium shot demonstrating {step_1}, smooth tracking shot, clear focus on action.\nScene 4 (25-40s): Close-up on {key_detail}, {camera_movement}, highlighting important element.\nScene 5 (40-55s): Reveal shot of {result}, pull-back to show full context, satisfying payoff.\nScene 6 (55-60s): Direct address or text overlay for CTA, warm inviting lighting.\n\nStyle: {visual_style}, 9:16 vertical, 4K quality\nAudio: {audio_description}, clear narration, subtle background music"
+    },
+    "storytelling": {
+      "structure": "Hook (0-3s) → Setup (3-15s) → Conflict (15-35s) → Resolution (35-55s) → Twist/CTA (55-60s)",
+      "prompt_template": "Scene 1 (0-3s): {opening_shot}, cinematic framing, {hook_element} to grab attention.\nScene 2 (3-15s): Establishing shot of {setting}, slow camera movement, {time_of_day} lighting, ambient sounds.\nScene 3 (15-25s): Medium shot of {character_action}, building tension, {mood} atmosphere.\nScene 4 (25-35s): Close-up reaction shot, emotional lighting, dramatic pause.\nScene 5 (35-50s): Wide shot {resolution_scene}, camera pulls back, triumphant or emotional music swell.\nScene 6 (50-60s): Final shot with {ending_visual}, fade or creative transition.\n\nStyle: {visual_style}, cinematic aspect within 9:16, film-like quality\nAudio: Emotional score, natural ambient sounds, character dialogue: \"{short_dialogue}\""
+    },
+    "aesthetic_vibes": {
+      "structure": "Visual Flow with Music (no narration needed)",
+      "prompt_template": "Scene 1 (0-8s): {opening_visual}, slow motion, {lighting_mood}, dreamy atmosphere.\nScene 2 (8-20s): {second_visual}, smooth dolly or crane shot, {color_palette} tones.\nScene 3 (20-35s): {third_visual}, creative camera angle, seamless transition from previous.\nScene 4 (35-50s): {fourth_visual}, dynamic movement, peak visual moment.\nScene 5 (50-60s): {closing_visual}, gentle fade or loop-friendly ending.\n\nStyle: {aesthetic_style}, highly polished, Instagram-worthy, ASMR-visual quality\nAudio: {music_genre} beat, perfectly synced to visuals, no dialogue"
+    },
+    "tutorial_quick": {
+      "structure": "Result First (0-3s) → Steps (3-50s) → Recap (50-60s)",
+      "prompt_template": "Scene 1 (0-3s): Close-up of {finished_result}, stunning presentation, hook the viewer with outcome.\nScene 2 (3-12s): Overhead shot of {materials_setup}, clean layout, soft even lighting.\nScene 3 (12-25s): POV or close-up of {step_1_action}, clear demonstration, {detail_focus}.\nScene 4 (25-38s): Medium shot of {step_2_action}, different angle, showing progress.\nScene 5 (38-50s): Close-up of {final_touches}, satisfying detail shots, near completion.\nScene 6 (50-60s): Beauty shot of {final_result}, slight rotation or movement, text overlay with key tip.\n\nStyle: Clean bright aesthetic, professional lighting, crisp focus\nAudio: Upbeat background music, clear step-by-step narration, satisfying sound effects"
+    },
+    "reaction_commentary": {
+      "structure": "Content Clip (0-2s) → Reaction (2-45s) → Opinion/CTA (45-60s)",
+      "prompt_template": "Scene 1 (0-2s): Screen recording or reference to {original_content}, attention-grabbing moment.\nScene 2 (2-20s): Face cam reaction shot, expressive {emotion}, natural lighting, engaged body language.\nScene 3 (20-35s): Split screen or picture-in-picture, {commentary_visual}, dynamic framing.\nScene 4 (35-50s): Full frame reaction, {peak_emotion_moment}, camera slightly closer.\nScene 5 (50-60s): Direct address to camera, {call_to_action}, friendly inviting expression.\n\nStyle: Authentic vlog aesthetic, good audio quality, personality-forward\nAudio: Clear voice, reaction sounds, optional background music low in mix"
+    }
+  },
+
+  "audio_guidelines": {
+    "dialogue_rules": [
+      "Keep dialogue under 8 seconds per scene",
+      "Use colon format: 'Character says: dialogue here' to avoid auto-subtitles",
+      "Add '(no subtitles)' if needed",
+      "Match lip movements to short, clear phrases"
+    ],
+    "music_sync": [
+      "Use trending sounds in first 5 seconds for 21% reach boost",
+      "Beat drops should align with visual transitions",
+      "Music energy should match content energy curve"
+    ],
+    "sound_design": [
+      "Add satisfying sound effects for actions (ASMR-style)",
+      "Ambient sounds increase immersion",
+      "Silence can be powerful for dramatic moments"
+    ]
+  },
+
+  "optimization_checklist": {
+    "first_3_seconds": [
+      "Visual is striking and high-contrast",
+      "Face visible (42% engagement boost) if applicable",
+      "Voice starts within 0.3 seconds",
+      "No slow build or context setup",
+      "Promise of value is immediate"
+    ],
+    "retention_tactics": [
+      "Visual change every 3-5 seconds",
+      "Camera movement maintains interest",
+      "Text overlays for sound-off viewers",
+      "Loop-friendly ending (last frame connects to first)",
+      "Payoff delivers on hook promise"
+    ],
+    "algorithm_signals": [
+      "50-60 second length optimal",
+      "High completion rate priority",
+      "Encourage repeat views",
+      "Strong engagement hooks throughout"
+    ]
+  },
+
+  "genre_presets": {
+    "tech_review": {
+      "lighting": "clean studio lighting, subtle rim light",
+      "camera": "smooth product shots, macro details, rotating display",
+      "style": "modern minimal, tech aesthetic, blue accent colors",
+      "audio": "electronic ambient, clear voiceover"
+    },
+    "food_recipe": {
+      "lighting": "warm natural light, soft shadows",
+      "camera": "overhead shots, close-up textures, steam rising",
+      "style": "cozy warm tones, rustic elements, appetizing colors",
+      "audio": "cooking ASMR sounds, light acoustic music"
+    },
+    "fitness": {
+      "lighting": "dramatic gym lighting, high energy",
+      "camera": "dynamic tracking, slow-mo impacts, multiple angles",
+      "style": "high contrast, energetic, motivational",
+      "audio": "pump-up beats, breathing sounds, impact effects"
+    },
+    "travel": {
+      "lighting": "golden hour, natural landscapes",
+      "camera": "drone shots, gimbal walks, epic reveals",
+      "style": "cinematic color grade, wanderlust aesthetic",
+      "audio": "inspiring orchestral or indie folk"
+    },
+    "comedy_skit": {
+      "lighting": "natural or sitcom-style even lighting",
+      "camera": "static setup with reaction cuts, comedic timing",
+      "style": "relatable everyday settings, expressive faces",
+      "audio": "comedic timing beats, sound effects for punchlines"
+    },
+    "motivation": {
+      "lighting": "dramatic, sunrise/sunset, silhouettes",
+      "camera": "epic wide shots, powerful low angles, slow push-ins",
+      "style": "high contrast, bold, inspirational",
+      "audio": "emotional orchestral build, powerful voiceover"
+    },
+    "asmr_satisfying": {
+      "lighting": "soft diffused, no harsh shadows",
+      "camera": "extreme close-ups, smooth slow movements",
+      "style": "clean minimal, pleasing symmetry, color harmony",
+      "audio": "crisp detailed sounds, no music, pure ASMR"
+    },
+    "nature_relaxation": {
+      "lighting": "natural ambient, weather-appropriate",
+      "camera": "slow cinematic pans, time-lapses, macro nature",
+      "style": "earth tones, peaceful, meditative",
+      "audio": "natural ambience, gentle instrumental"
+    }
+  },
+
+  "example_prompts": {
+    "sunset_relaxation": "Scene 1 (0-3s): Breathtaking close-up of sun touching ocean horizon, golden hour light reflecting on gentle waves, slow camera tilt up.\nScene 2 (3-15s): Wide cinematic shot of beach silhouette, palm trees swaying, warm orange and purple sky, smooth dolly right.\nScene 3 (15-30s): Medium shot of waves washing over sand, foam patterns, golden backlight, relaxing rhythm.\nScene 4 (30-45s): Close-up of seashells and sand details, soft focus background, intimate perspective.\nScene 5 (45-60s): Final wide shot as sun dips below horizon, stars beginning to appear, gentle fade.\n\nStyle: Cinematic film look, warm color grading, 9:16 vertical, dreamy soft focus\nAudio: Gentle ocean waves, distant seagulls, soft ambient piano melody",
+
+    "coffee_morning": "Scene 1 (0-3s): Extreme close-up of coffee being poured into ceramic cup, steam rising dramatically, rich brown colors, macro lens detail.\nScene 2 (3-12s): Pull back to reveal cozy morning scene, soft window light streaming in, warm bokeh background, smooth camera movement.\nScene 3 (12-25s): Overhead shot of hands wrapping around warm cup, cream swirling into coffee, satisfying spiral pattern.\nScene 4 (25-40s): Medium shot of peaceful morning moment, steam wisps catching light, relaxed atmosphere.\nScene 5 (40-55s): Close-up of first sip, content expression, warm inviting feeling.\nScene 6 (55-60s): Wide shot of complete cozy scene, text overlay: 'Start your day right', loop-friendly ending.\n\nStyle: Warm cozy aesthetic, soft natural lighting, hygge vibes, film grain\nAudio: Coffee pouring ASMR, gentle morning ambience, soft lo-fi beat",
+
+    "space_exploration": "Scene 1 (0-3s): Dramatic reveal of Earth from space, sun cresting the horizon, lens flare, epic scale immediately apparent.\nScene 2 (3-15s): Sweeping camera move past space station, stars in background, Earth reflection on solar panels, zero gravity feel.\nScene 3 (15-30s): Close-up of astronaut helmet visor, Earth reflection visible, human element in vast space.\nScene 4 (30-45s): Pull back to show astronaut floating, nebula colors in distance, sense of wonder and scale.\nScene 5 (45-60s): Final wide shot of galaxy, zoom into stars, infinite possibility feeling.\n\nStyle: Cinematic sci-fi, deep blacks and vibrant nebula colors, epic scale, 4K detail\nAudio: Hans Zimmer style orchestral, deep bass, ethereal choir, no dialogue"
+  }
+}

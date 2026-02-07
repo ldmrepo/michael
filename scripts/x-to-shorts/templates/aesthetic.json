@@ -1,0 +1,93 @@
+{
+  "name": "aesthetic",
+  "display_name": "감성형",
+  "description": "비주얼 중심, 힐링/감성 콘텐츠",
+  "hook_format": "{장면}의 순간",
+  "structure": "장면1 → 장면2 → 마무리",
+  "emotions": ["joy", "neutral"],
+  "themes": ["Travel", "Food", "Beauty", "Daily"],
+  "beat_sheet": {
+    "hook": {
+      "duration": 5,
+      "description": "시각적으로 아름다운 장면으로 시선 사로잡기",
+      "visual": "stunning opening visual, beauty shot",
+      "audio": "atmospheric music, ambient sounds"
+    },
+    "setup": {
+      "duration": 15,
+      "description": "분위기 있는 장면 전개",
+      "visual": "mood-setting visuals, slow reveals",
+      "audio": "building ambient music, natural sounds"
+    },
+    "development": {
+      "duration": 20,
+      "description": "시각적 여정, 변화하는 풍경/순간",
+      "visual": "visual journey, variety of beautiful shots",
+      "audio": "music matches visual flow, ASMR elements"
+    },
+    "climax": {
+      "duration": 12,
+      "description": "가장 인상적인 비주얼 클라이맥스",
+      "visual": "peak visual moment, breathtaking shot",
+      "audio": "music swell, emotional peak"
+    },
+    "resolution": {
+      "duration": 8,
+      "description": "여운 있는 마무리, 루프 가능한 엔딩",
+      "visual": "gentle closing, loop-friendly",
+      "audio": "fade out, lingering atmosphere"
+    }
+  },
+  "continuity": {
+    "color_palette": "cinematic color grading, cohesive mood",
+    "lighting_setup": "golden hour, atmospheric, soft natural",
+    "time_of_day": "golden hour, blue hour, or mood-appropriate",
+    "camera_style": "smooth cinematic movements, slow graceful",
+    "audio_theme": "ambient music, ASMR elements, no narration"
+  },
+  "shot_styles": {
+    "beauty": {
+      "optics": "wide establishing, panoramic",
+      "motion": "slow pan, crane, or dolly",
+      "lighting": "golden hour, atmospheric",
+      "style": "cinematic, dreamy"
+    },
+    "detail": {
+      "optics": "macro, close-up texture",
+      "motion": "slow dolly or static",
+      "lighting": "soft, detail-revealing",
+      "style": "intimate, ASMR-visual"
+    },
+    "transition": {
+      "optics": "creative angle, unique perspective",
+      "motion": "smooth transition movement",
+      "lighting": "consistent with mood",
+      "style": "seamless, flowing"
+    },
+    "closing": {
+      "optics": "wide or medium, satisfying composition",
+      "motion": "gentle drift, static beauty",
+      "lighting": "soft, warm",
+      "style": "peaceful, conclusive"
+    }
+  },
+  "audio_suggestions": {
+    "background_music": "lo-fi, ambient, acoustic, cinematic score",
+    "sound_effects": ["natural ambient", "ASMR sounds", "gentle transitions"],
+    "voice_style": "none or minimal, soft whisper if needed"
+  },
+  "example_hooks": [
+    "이 순간",
+    "힐링 그 자체",
+    "분위기 있는 하루",
+    "조용한 아침",
+    "석양의 순간"
+  ],
+  "visual_references": [
+    "golden hour photography",
+    "ASMR visual",
+    "satisfying videos",
+    "travel vlog b-roll",
+    "cafe aesthetic"
+  ]
+}

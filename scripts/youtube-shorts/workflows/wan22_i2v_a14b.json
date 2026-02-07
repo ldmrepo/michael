@@ -1,0 +1,125 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+      "weight_dtype": "fp8_e4m3fn_fast"
+    },
+    "_meta": {"title": "High Noise Expert (Pass 1)"}
+  },
+  "2": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+      "weight_dtype": "fp8_e4m3fn_fast"
+    },
+    "_meta": {"title": "Low Noise Expert (Pass 2)"}
+  },
+  "3": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "type": "wan"
+    },
+    "_meta": {"title": "Load Text Encoder"}
+  },
+  "4": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "wan_2.1_vae.safetensors"
+    },
+    "_meta": {"title": "Load VAE (14B)"}
+  },
+  "5": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "{{PROMPT}}",
+      "clip": ["3", 0]
+    },
+    "_meta": {"title": "Positive Prompt"}
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "blurry, distorted, low quality, watermark, text, deformed",
+      "clip": ["3", 0]
+    },
+    "_meta": {"title": "Negative Prompt"}
+  },
+  "7": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "{{INPUT_IMAGE}}"
+    },
+    "_meta": {"title": "Input Image"}
+  },
+  "8": {
+    "class_type": "Wan2.2ImageToVideoLatent",
+    "inputs": {
+      "width": 720,
+      "height": 1280,
+      "length": 121,
+      "batch_size": 1,
+      "image": ["7", 0],
+      "vae": ["4", 0]
+    },
+    "_meta": {"title": "I2V Latent (14B)"}
+  },
+  "10": {
+    "class_type": "KSamplerAdvanced",
+    "inputs": {
+      "add_noise": "enable",
+      "noise_seed": "__RANDOM_INT__",
+      "steps": 20,
+      "cfg": 3.5,
+      "sampler_name": "euler",
+      "scheduler": "beta",
+      "start_at_step": 0,
+      "end_at_step": 10,
+      "return_with_leftover_noise": "enable",
+      "model": ["1", 0],
+      "positive": ["5", 0],
+      "negative": ["6", 0],
+      "latent_image": ["8", 0]
+    },
+    "_meta": {"title": "Pass 1: High Noise (steps 0-10)"}
+  },
+  "11": {
+    "class_type": "KSamplerAdvanced",
+    "inputs": {
+      "add_noise": "disable",
+      "noise_seed": "__RANDOM_INT__",
+      "steps": 20,
+      "cfg": 3.5,
+      "sampler_name": "euler",
+      "scheduler": "beta",
+      "start_at_step": 10,
+      "end_at_step": 10000,
+      "return_with_leftover_noise": "disable",
+      "model": ["2", 0],
+      "positive": ["5", 0],
+      "negative": ["6", 0],
+      "latent_image": ["10", 0]
+    },
+    "_meta": {"title": "Pass 2: Low Noise (steps 10+)"}
+  },
+  "12": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["11", 0],
+      "vae": ["4", 0]
+    },
+    "_meta": {"title": "VAE Decode"}
+  },
+  "13": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "frame_rate": 24,
+      "loop_count": 0,
+      "filename_prefix": "wan22_a14b_output",
+      "format": "video/h264-mp4",
+      "images": ["12", 0]
+    },
+    "_meta": {"title": "Save Video"}
+  }
+}
