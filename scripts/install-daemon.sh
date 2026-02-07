@@ -54,7 +54,7 @@ cat > "$PLIST_PATH" <<EOF
         <key>NODE_ENV</key>
         <string>production</string>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <string>/Users/ldm/.local/bin:/Users/ldm/work/workspace/ai_agentic/opencode-demo/michael/google-cloud-sdk/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     </dict>
 </dict>
 </plist>

@@ -38,6 +38,8 @@ export class TelegramChannel {
   private renderer: TelegramAdaptiveRenderer;
   // Web App 매니저
   private webAppManager: TelegramWebAppManager | null = null;
+  // 수동 폴링 제어
+  private pollingRunning = false;
 
   constructor(token: string, gatewayUrl: string, rendererConfig?: TelegramRendererConfig) {
     this.bot = new Telegraf(token);
@@ -685,10 +687,10 @@ export class TelegramChannel {
    */
   private startManualPolling(): void {
     let offset = 0;
-    let running = true;
+    this.pollingRunning = true;
 
     const poll = async () => {
-      while (running) {
+      while (this.pollingRunning) {
         try {
           const updates = await this.bot.telegram.callApi('getUpdates', {
             offset,
@@ -697,6 +699,7 @@ export class TelegramChannel {
           }) as any[];
 
           for (const update of updates) {
+            if (!this.pollingRunning) break;
             offset = update.update_id + 1;
             log('debug', `📩 Processing update: ${update.update_id}`);
             try {
@@ -706,10 +709,12 @@ export class TelegramChannel {
             }
           }
         } catch (err: any) {
+          if (!this.pollingRunning) break;
           log('error', `❌ Polling error: ${err.message}`);
-          await new Promise(resolve => setTimeout(resolve, 5000)); // 5초 대기 후 재시도
+          await new Promise(resolve => setTimeout(resolve, 5000));
         }
       }
+      log('info', '🛑 Manual polling stopped gracefully');
     };
 
     poll().catch((err) => {
@@ -740,7 +745,17 @@ export class TelegramChannel {
    */
   async sendMessage(chatId: number, text: string): Promise<void> {
     try {
-      await this.bot.telegram.sendMessage(chatId, text);
+      // 일반 Markdown을 Telegram Markdown으로 변환
+      const telegramText = this.convertToTelegramMarkdown(text);
+
+      // Markdown 파싱 시도, 실패하면 일반 텍스트로 전송
+      try {
+        await this.bot.telegram.sendMessage(chatId, telegramText, { parse_mode: 'Markdown' });
+      } catch (markdownError) {
+        // Markdown 파싱 실패 시 일반 텍스트로 재시도
+        log('debug', `⚠️ Markdown parse failed, sending as plain text`);
+        await this.bot.telegram.sendMessage(chatId, text);
+      }
       log('debug', `📤 Sent to Telegram: ${chatId}`);
     } catch (error) {
       log('error', `❌ Failed to send Telegram message: ${error}`);
@@ -748,10 +763,34 @@ export class TelegramChannel {
   }
 
   /**
+   * 일반 Markdown을 Telegram Markdown으로 변환
+   * Telegram 지원: *bold*, _italic_, `code`, ```pre```, [text](url)
+   * 지원 안함: #헤더, 리스트, 테이블 등
+   */
+  private convertToTelegramMarkdown(text: string): string {
+    return text
+      // ### 헤더 → *굵은 텍스트* (줄바꿈 유지)
+      .replace(/^###\s+(.+)$/gm, '*$1*')
+      // ## 헤더 → *굵은 텍스트*
+      .replace(/^##\s+(.+)$/gm, '*$1*')
+      // # 헤더 → *굵은 텍스트*
+      .replace(/^#\s+(.+)$/gm, '*$1*')
+      // **bold** → *bold* (Telegram은 *만 사용)
+      .replace(/\*\*([^*]+)\*\*/g, '*$1*')
+      // __italic__ → _italic_
+      .replace(/__([^_]+)__/g, '_$1_')
+      // 코드 블록, 인라인 코드는 그대로 유지
+      ;
+  }
+
+  /**
    * 종료
    */
   async stop(): Promise<void> {
     log('info', '👋 Stopping Telegram channel...');
+
+    // 폴링 루프 종료
+    this.pollingRunning = false;
 
     // 모든 타이핑 인디케이터 정리
     for (const [, interval] of this.typingIntervals) {

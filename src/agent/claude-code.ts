@@ -1,4 +1,6 @@
 import { spawn, ChildProcess } from 'child_process';
+import { mkdir, writeFile } from 'fs/promises';
+import { join } from 'path';
 import { Memory, Message, Schedule } from '../brain/memory.js';
 import { Scheduler } from '../scheduler/cron.js';
 import { log } from '../utils/logger.js';
@@ -222,6 +224,35 @@ user: ${message}
 - Remember important information that the user shares
 - If the user asks you to remember something, extract the key-value pair and mark it with [FACT:key:value]
 
+## Telegram Formatting (IMPORTANT)
+You MUST use Telegram-compatible Markdown format:
+- Bold: *bold* (NOT **bold**)
+- Italic: _italic_ (NOT *italic*)
+- Code: \`code\` (same)
+- NO headers (#, ##, ###) - use *bold text* instead
+- NO tables - use simple lists instead
+- NO horizontal rules (---)
+Keep responses concise and mobile-friendly.
+
+## Self-Modifying: Skill Creation
+When the user asks to create a new feature/skill, generate a skill file using this marker:
+
+[CREATE_SKILL:skill_name]
+---
+name: skill_name
+description: |
+  Brief description. Keywords that trigger this skill.
+allowed-tools: Bash(bash:*), Bash(curl:*), Read, Write
+---
+
+# Skill Title
+
+Detailed instructions...
+[/CREATE_SKILL]
+
+The file will be created at .claude/skills/{skill_name}/SKILL.md
+Only create skills when explicitly requested.
+
 ## Schedule Management
 You have direct access to the user's active schedules listed above.
 
@@ -395,6 +426,25 @@ Please respond to the user's message:
       } else {
         await this.memory.deactivateSchedule(scheduleId);
         log('warn', `⏰ Schedule deactivated in DB only (no scheduler): ${scheduleId}`);
+      }
+    }
+
+    // Skill 생성 처리 (Self-Modifying)
+    const skillMatches = response.matchAll(/\[CREATE_SKILL:(\w+)\]([\s\S]*?)\[\/CREATE_SKILL\]/g);
+    for (const match of skillMatches) {
+      const [, skillName, skillContent] = match;
+      try {
+        const skillDir = join(process.cwd(), '.claude', 'skills', skillName);
+        const skillPath = join(skillDir, 'SKILL.md');
+
+        // 디렉토리 생성
+        await mkdir(skillDir, { recursive: true });
+
+        // 스킬 파일 생성
+        await writeFile(skillPath, skillContent.trim(), 'utf-8');
+        log('info', `🛠️ Skill created: ${skillName} at ${skillPath}`);
+      } catch (error) {
+        log('error', `❌ Failed to create skill ${skillName}: ${error}`);
       }
     }
 
