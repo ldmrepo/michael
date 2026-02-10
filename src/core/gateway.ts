@@ -22,7 +22,7 @@ import {
  */
 export interface GatewayMessage {
   from: 'telegram' | 'scheduler' | 'cli' | 'agent';
-  to: 'agent' | 'telegram' | 'scheduler' | 'cli';
+  to: 'agent' | 'telegram' | 'scheduler' | 'cli' | 'investment' | string;
   userId: string;
   content: string;
   metadata?: Record<string, any>;
@@ -59,6 +59,7 @@ export class Gateway {
   private port: number;
   private host: string;
   private agent: ClaudeCodeAgent | null = null;
+  private messageHandlers: Map<string, (message: GatewayMessage) => Promise<void>> = new Map();
 
   constructor(port: number = 18789, host: string = '127.0.0.1') {
     this.port = port;
@@ -71,6 +72,15 @@ export class Gateway {
   setAgent(agent: ClaudeCodeAgent): void {
     this.agent = agent;
     log('info', '🤖 Agent connected to Gateway');
+  }
+
+  /**
+   * Register a message handler for a specific target type
+   * Messages with `to` matching the type will be routed to this handler
+   */
+  registerHandler(type: string, handler: (message: GatewayMessage) => Promise<void>): void {
+    this.messageHandlers.set(type, handler);
+    log('info', `📌 Handler registered for: ${type}`);
   }
 
   /**
@@ -187,6 +197,17 @@ export class Gateway {
     // Agent로 가는 메시지는 직접 처리
     if (message.to === 'agent') {
       await this.handleAgentMessage(senderId, message);
+      return;
+    }
+
+    // 등록된 핸들러가 있으면 위임
+    const handler = this.messageHandlers.get(message.to);
+    if (handler) {
+      try {
+        await handler(message);
+      } catch (error) {
+        log('error', `❌ Handler error for ${message.to}: ${error}`);
+      }
       return;
     }
 

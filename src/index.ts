@@ -5,6 +5,8 @@ import { ClaudeCodeAgent } from './agent/claude-code.js';
 import { TelegramChannel } from './channels/telegram.js';
 import { Scheduler } from './scheduler/cron.js';
 import { HttpServer } from './core/http-server.js';
+import { InvestmentService } from './investment/index.js';
+import { FinanceAgentServer } from './agents/finance/server.js';
 import { log } from './utils/logger.js';
 import { loadMemoryConfig } from './memory-new/config.js';
 import path from 'path';
@@ -22,6 +24,8 @@ class Michael {
   private telegram: TelegramChannel | null = null;
   private scheduler: Scheduler;
   private httpServer: HttpServer;
+  private investment: InvestmentService | null = null;
+  private financeAgent: FinanceAgentServer | null = null;
 
   constructor() {
     // 환경 변수
@@ -97,6 +101,31 @@ class Michael {
         log('warn', '⚠️ TELEGRAM_BOT_TOKEN not set, Telegram disabled');
       }
 
+      // Finance Agent 시작 (A2A server on :8001)
+      try {
+        this.financeAgent = new FinanceAgentServer();
+        await this.financeAgent.start();
+      } catch (error) {
+        log('warn', `⚠️ Finance Agent failed to start: ${error}`);
+        this.financeAgent = null;
+      }
+
+      // Investment Service 시작 (Binance API 키가 있는 경우에만)
+      if (process.env.BINANCE_API_KEY) {
+        try {
+          this.investment = new InvestmentService(
+            this.memory.getDb(),
+            this.gateway,
+          );
+          this.investment.start();
+          log('info', '✅ Investment service started');
+        } catch (error) {
+          log('warn', `⚠️ Investment service failed to start: ${error}`);
+        }
+      } else {
+        log('info', 'ℹ️ BINANCE_API_KEY not set, Investment service disabled');
+      }
+
       log('info', '🎉 Michael is ready!');
       log('info', '💡 Connect with: wscat -c ws://127.0.0.1:18789');
 
@@ -123,6 +152,12 @@ class Michael {
   async stop(): Promise<void> {
     log('info', '👋 Stopping Michael...');
 
+    if (this.financeAgent) {
+      await this.financeAgent.stop();
+    }
+    if (this.investment) {
+      this.investment.stop();
+    }
     this.scheduler.stop();
     if (this.telegram) {
       await this.telegram.stop();

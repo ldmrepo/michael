@@ -176,6 +176,20 @@ export class TelegramChannel {
         return;
       }
 
+      // 인라인 키보드가 있으면 버튼과 함께 전송
+      if (message.metadata?.inline_keyboard) {
+        try {
+          await this.bot.telegram.sendMessage(chatId, message.content, {
+            reply_markup: {
+              inline_keyboard: message.metadata.inline_keyboard,
+            },
+          });
+          return;
+        } catch (error) {
+          log('error', `❌ Failed to send message with keyboard: ${error}`);
+        }
+      }
+
       // 레거시: 단순 메시지 전송
       this.sendMessage(chatId, message.content);
 
@@ -629,6 +643,21 @@ export class TelegramChannel {
       // 액션 파싱
       const action = this.renderer.parseCallbackData(callbackData);
 
+      // Investment 콜백은 InvestmentService로 직접 라우팅 (inv_ prefix)
+      if (callbackData.startsWith('inv_')) {
+        this.sendToGateway({
+          from: 'telegram',
+          to: 'investment',
+          userId,
+          content: callbackData,
+          metadata: {
+            chatId,
+            type: 'investment_callback',
+          },
+        });
+        return;
+      }
+
       // Gateway로 액션 전송
       this.sendToGateway({
         from: 'telegram',
@@ -811,7 +840,11 @@ export class TelegramChannel {
     }
 
     // 봇 종료
-    this.bot.stop();
+    try {
+      this.bot.stop();
+    } catch {
+      // polling 모드에서는 bot.stop()이 실패할 수 있음
+    }
 
     log('info', '✅ Telegram channel stopped');
   }
