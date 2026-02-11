@@ -57,6 +57,14 @@ export class Memory {
   }
 
   /**
+   * Get the underlying database instance
+   * Used by InvestmentService for shared DB access
+   */
+  getDb(): Database.Database {
+    return this.db;
+  }
+
+  /**
    * 데이터베이스 테이블 초기화
    */
   private initializeTables(): void {

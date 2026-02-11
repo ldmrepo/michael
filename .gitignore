@@ -59,8 +59,9 @@ frontend/out/
 # Google Cloud SDK (local install)
 google-cloud-sdk/
 
-# Python cache
+# Python cache / virtualenv
 __pycache__/
+.venv/
 
 # Reference docs (local)
 reference/

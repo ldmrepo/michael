@@ -6,6 +6,7 @@ import { TelegramChannel } from './channels/telegram.js';
 import { Scheduler } from './scheduler/cron.js';
 import { HttpServer } from './core/http-server.js';
 import { InvestmentService } from './investment/index.js';
+import { PredictionMarketService } from './prediction-market/index.js';
 import { FinanceAgentServer } from './agents/finance/server.js';
 import { log } from './utils/logger.js';
 import { loadMemoryConfig } from './memory-new/config.js';
@@ -25,6 +26,7 @@ class Michael {
   private scheduler: Scheduler;
   private httpServer: HttpServer;
   private investment: InvestmentService | null = null;
+  private predictionMarket: PredictionMarketService | null = null;
   private financeAgent: FinanceAgentServer | null = null;
 
   constructor() {
@@ -126,6 +128,22 @@ class Michael {
         log('info', 'ℹ️ BINANCE_API_KEY not set, Investment service disabled');
       }
 
+      // Prediction Market Service 시작 (POLYMARKET_ENABLED=true 시)
+      if (process.env.POLYMARKET_ENABLED === 'true') {
+        try {
+          this.predictionMarket = new PredictionMarketService(
+            this.memory.getDb(),
+            this.gateway,
+          );
+          this.predictionMarket.start();
+          log('info', '✅ Prediction Market service started');
+        } catch (error) {
+          log('warn', `⚠️ Prediction Market service failed to start: ${error}`);
+        }
+      } else {
+        log('info', 'ℹ️ POLYMARKET_ENABLED not set, Prediction Market service disabled');
+      }
+
       log('info', '🎉 Michael is ready!');
       log('info', '💡 Connect with: wscat -c ws://127.0.0.1:18789');
 
@@ -157,6 +175,9 @@ class Michael {
     }
     if (this.investment) {
       this.investment.stop();
+    }
+    if (this.predictionMarket) {
+      this.predictionMarket.stop();
     }
     this.scheduler.stop();
     if (this.telegram) {

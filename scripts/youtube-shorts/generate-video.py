@@ -2,7 +2,7 @@
 """
 Video Generation API - Veo 3.1 & Sora 2 & ComfyUI 지원
 
-Google Veo, OpenAI Sora, 또는 ComfyUI (Vast.ai + Wan2.2)를 사용하여 영상을 생성합니다.
+Google Veo, OpenAI Sora, 또는 ComfyUI (Direct Instance / Vast.ai Serverless + Wan2.2)를 사용하여 영상을 생성합니다.
 
 Usage:
     # Veo 사용 (기본값)
@@ -10,6 +10,9 @@ Usage:
 
     # Sora 사용
     python3 generate-video.py --prompt "A cat walking" --provider sora
+
+    # ComfyUI 사용 (Direct Instance — SSH 터널)
+    COMFYUI_HOST=http://localhost:8188 python3 generate-video.py --prompt "A cat walking" --provider comfyui
 
     # ComfyUI 사용 (Vast.ai Serverless)
     python3 generate-video.py --prompt "A cat walking" --provider comfyui
@@ -28,6 +31,13 @@ import urllib.request
 import urllib.error
 import subprocess
 from typing import Optional
+
+# S3 Storage — optional
+try:
+    from s3_storage import S3Storage
+    HAS_S3 = True
+except ImportError:
+    HAS_S3 = False
 
 
 # =============================================================================
@@ -48,12 +58,14 @@ SORA_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 SORA_MODEL = os.environ.get("SORA_MODEL", "sora-2")
 SORA_VALID_DURATIONS = [4, 8, 12]  # Sora 2 지원 길이
 
-# ComfyUI 설정 (Vast.ai)
+# ComfyUI 설정 (Direct Instance / Vast.ai Serverless)
+COMFYUI_HOST = os.environ.get("COMFYUI_HOST", "")  # Direct: http://localhost:8188 | 빈 값: Serverless
 COMFYUI_MODEL = os.environ.get("COMFYUI_MODEL", "wan22-i2v-a14b")  # wan22-i2v-a14b | wan22-ti2v-5b
 COMFYUI_STEPS = int(os.environ.get("COMFYUI_STEPS", "20"))
 COMFYUI_CFG = float(os.environ.get("COMFYUI_CFG", "3.5"))
 COMFYUI_RESOLUTION = os.environ.get("COMFYUI_RESOLUTION", "720x1280")  # WxH (9:16 세로형)
 COMFYUI_FRAMES = int(os.environ.get("COMFYUI_FRAMES", "121"))  # 121 frames ≈ 5s @24fps
+COMFYUI_LIGHTNING = os.environ.get("COMFYUI_LIGHTNING", "").lower() in ("1", "true", "yes")  # Lightning LoRA (4-step)
 
 # 컷 이미지 생성 프로바이더
 CUT_IMAGE_PROVIDER = os.environ.get("CUT_IMAGE_PROVIDER", "gemini")  # gemini | flux
@@ -445,8 +457,14 @@ def generate_video_comfyui(
     output_path: str = "/tmp/shorts/video.mp4",
     aspect_ratio: str = "9:16",
     input_image: Optional[str] = None,
+    lightning: bool = False,
 ) -> Optional[str]:
-    """Generate video using ComfyUI via Vast.ai Serverless.
+    """Generate video using ComfyUI via Direct Instance or Vast.ai Serverless.
+
+    When S3 is available, creates a job and uploads all assets:
+      s3://bucket/jobs/{job_id}/plan.json
+      s3://bucket/jobs/{job_id}/input_image.png
+      s3://bucket/jobs/{job_id}/clip_01.mp4
 
     Args:
         prompt: Text prompt describing the video
@@ -462,11 +480,18 @@ def generate_video_comfyui(
 
     client = ComfyUIClient()
 
+    # Initialize S3 job tracking
+    job_id = None
+    s3 = client.s3
+    if s3 and HAS_S3:
+        job_id = s3.generate_job_id()
+        print(f"📦 S3 Job: {job_id}")
+
     # Step 1: I2V mode — generate cut image if needed
     if input_image is None and COMFYUI_MODEL != "wan22-ti2v-5b":
         provider_name = "Imagen 4" if CUT_IMAGE_PROVIDER == "gemini" else "FLUX.2 Klein"
         print(f"🖼️ Generating cut image with {provider_name}...")
-        input_image = client.generate_cut_image(prompt, 480, 832)
+        input_image = client.generate_cut_image(prompt, 480, 832, job_id=job_id)
         if input_image is None:
             print("⚠️ Image generation failed, falling back to T2V")
 
@@ -485,11 +510,35 @@ def generate_video_comfyui(
     else:
         width, height = (640, 640) if "5b" in COMFYUI_MODEL else (960, 960)
 
-    # Step 4: Execute ComfyUI workflow
+    # Step 4: Upload job metadata to S3
+    if s3 and job_id:
+        metadata = {
+            "job_id": job_id,
+            "prompt": prompt,
+            "model": COMFYUI_MODEL,
+            "resolution": f"{width}x{height}",
+            "frames": frames,
+            "fps": fps,
+            "duration_s": frames / fps,
+            "steps": COMFYUI_STEPS,
+            "cfg": COMFYUI_CFG,
+            "aspect_ratio": aspect_ratio,
+            "mode": "I2V" if input_image else "T2V",
+            "cut_image_provider": CUT_IMAGE_PROVIDER,
+        }
+        try:
+            s3.upload_job_metadata(job_id, metadata)
+        except Exception as e:
+            print(f"⚠️ Failed to upload job metadata: {e}")
+
+    # Step 5: Execute ComfyUI workflow
+    lightning = lightning or COMFYUI_LIGHTNING
+    steps = 4 if lightning else COMFYUI_STEPS
     print(f"🎬 Generating video with ComfyUI (Wan2.2)...")
     print(f"   Model: {COMFYUI_MODEL}")
     print(f"   Resolution: {width}x{height}")
     print(f"   Frames: {frames} ({frames/fps:.1f}s @{fps}fps)")
+    print(f"   Steps: {steps}{' (Lightning LoRA)' if lightning else ''}")
     print(f"   Mode: {'I2V' if input_image else 'T2V'}")
 
     result = client.generate_video(
@@ -497,15 +546,18 @@ def generate_video_comfyui(
         width=width,
         height=height,
         frames=frames,
-        steps=COMFYUI_STEPS,
+        steps=steps,
         cfg=COMFYUI_CFG,
         model=COMFYUI_MODEL,
         input_image=input_image,
+        lightning=lightning,
     )
 
     if result:
-        client.download_result(result, output_path)
+        client.download_result(result, output_path, job_id=job_id, clip_name="clip_01.mp4")
         print(f"✅ Video saved: {output_path}")
+        if job_id and s3:
+            print(f"   S3 Job: s3://{s3.bucket}/jobs/{job_id}/")
         return output_path
 
     print("❌ ComfyUI video generation failed")
@@ -522,6 +574,7 @@ def generate_video(
     output_path: str = "/tmp/shorts/video.mp4",
     aspect_ratio: str = "9:16",
     provider: Optional[str] = None,
+    lightning: bool = False,
 ) -> Optional[str]:
     """Generate video using specified provider.
 
@@ -531,6 +584,7 @@ def generate_video(
         output_path: Path to save the generated video
         aspect_ratio: Video aspect ratio (9:16 for shorts)
         provider: 'veo', 'sora', or 'comfyui' (default from VIDEO_PROVIDER env)
+        lightning: Use Lightning LoRA for fast 4-step inference (ComfyUI only)
 
     Returns:
         Output path if successful, None otherwise
@@ -540,7 +594,7 @@ def generate_video(
     if provider.lower() == "sora":
         return generate_video_sora(prompt, duration, output_path, aspect_ratio)
     elif provider.lower() == "comfyui":
-        return generate_video_comfyui(prompt, duration, output_path, aspect_ratio)
+        return generate_video_comfyui(prompt, duration, output_path, aspect_ratio, lightning=lightning)
     else:
         return generate_video_veo(prompt, duration, output_path, aspect_ratio)
 
@@ -569,7 +623,8 @@ Environment Variables:
   SORA_MODEL            Sora 모델 (sora)
   OPENAI_API_KEY        Sora 사용 시 필수
   GOOGLE_CLOUD_PROJECT  Veo GCP 프로젝트 ID
-  VAST_API_KEY          ComfyUI 사용 시 필수 (Vast.ai)
+  COMFYUI_HOST          Direct Instance URL (e.g. http://localhost:8188)
+  VAST_API_KEY          Serverless 모드 시 필요 (Vast.ai)
   COMFYUI_MODEL         wan22-i2v-a14b (기본) | wan22-ti2v-5b
   CUT_IMAGE_PROVIDER    gemini (기본) | flux
   GOOGLE_API_KEY        Imagen 4 Fast 사용 시 필수
@@ -585,6 +640,8 @@ Environment Variables:
     parser.add_argument("--provider", choices=["veo", "sora", "comfyui"],
                         default=DEFAULT_PROVIDER,
                         help=f"Video provider (default: {DEFAULT_PROVIDER})")
+    parser.add_argument("--lightning", action="store_true",
+                        help="Use Lightning LoRA for 4-step fast inference (ComfyUI only)")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
 
     args = parser.parse_args()
@@ -599,6 +656,7 @@ Environment Variables:
         output_path=args.output,
         aspect_ratio=args.aspect_ratio,
         provider=args.provider,
+        lightning=args.lightning,
     )
 
     if args.json:

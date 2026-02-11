@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-ComfyUI Client — Vast.ai Serverless + On-Demand ComfyUI integration.
+ComfyUI Client — Direct Instance + Vast.ai Serverless ComfyUI integration.
 
 Supports:
+  - Direct Instance: COMFYUI_HOST 환경변수로 HTTP API 직접 접근
+  - Serverless: Vast.ai SDK 기반 (VAST_API_KEY 필요)
   - Wan2.2-TI2V-5B (Text+Image to Video, 5B, 480x832)
   - Wan2.2-I2V-A14B (Image to Video, 14B MoE 2-Pass, 720x1280)
   - FLUX.2 Klein 4B (Image generation, 4B, 4 steps)
@@ -11,7 +13,13 @@ Supports:
 Usage:
     from comfyui_client import ComfyUIClient
 
-    client = ComfyUIClient()
+    # Direct Instance (SSH tunnel or direct access)
+    client = ComfyUIClient(comfyui_host="http://localhost:8188")
+    result = client.generate_video(prompt="sunset", width=720, height=1280, frames=121)
+    client.download_result(result, "/tmp/shorts/video.mp4")
+
+    # Serverless (Vast.ai SDK)
+    client = ComfyUIClient()  # uses VAST_API_KEY
     result = client.generate_video(prompt="sunset", width=720, height=1280, frames=121)
     client.download_result(result, "/tmp/shorts/video.mp4")
 """
@@ -28,8 +36,19 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
-# Vast.ai Serverless SDK (pip install vastai-sdk)
-from vastai_sdk import Serverless
+# Vast.ai Serverless SDK (pip install vastai-sdk) — optional for Direct mode
+try:
+    from vastai_sdk import Serverless
+    HAS_VASTAI_SDK = True
+except ImportError:
+    HAS_VASTAI_SDK = False
+
+# S3 Storage — optional
+try:
+    from s3_storage import S3Storage
+    HAS_S3 = True
+except ImportError:
+    HAS_S3 = False
 
 # =============================================================================
 # Constants
@@ -85,10 +104,13 @@ def _parameterize_workflow(
                     inputs[key] = seed or random.randint(0, 2**53)
 
         # Resolution / frame count
-        if node["class_type"] in ("EmptyHunyuanLatentVideo", "Wan2.2ImageToVideoLatent"):
+        if node["class_type"] in ("EmptyHunyuanLatentVideo", "Wan22ImageToVideoLatent", "WanImageToVideo"):
             inputs["width"] = width
             inputs["height"] = height
             inputs["length"] = frames
+        if node["class_type"] == "ImageScale":
+            inputs["width"] = width
+            inputs["height"] = height
 
         # Image input
         if node["class_type"] == "LoadImage" and input_image:
@@ -111,23 +133,50 @@ def _parameterize_workflow(
 
 
 # =============================================================================
-# ComfyUIClient (Vast.ai Serverless)
+# ComfyUIClient (Direct Instance / Vast.ai Serverless)
 # =============================================================================
 
 class ComfyUIClient:
-    """ComfyUI client via Vast.ai Serverless (Phase 1) or On-Demand (Phase 2)."""
+    """ComfyUI client via Direct Instance HTTP API or Vast.ai Serverless SDK.
+
+    Mode selection:
+      - Direct: COMFYUI_HOST 환경변수 또는 comfyui_host 파라미터
+      - Serverless: VAST_API_KEY 환경변수 (vastai_sdk 필요)
+    """
 
     ENDPOINT_NAME = "comfyui-json"
 
     def __init__(self, comfyui_host: Optional[str] = None):
+        self.comfyui_host = comfyui_host or os.environ.get("COMFYUI_HOST")
         self.api_key = os.environ.get("VAST_API_KEY")
-        if not self.api_key:
-            raise ValueError("VAST_API_KEY 환경변수가 필요합니다")
-        # Serverless: None (SDK response contains URL)
-        # On-Demand: "http://<ip>:<port>"
-        self.comfyui_host = comfyui_host
 
-    async def _submit_workflow(self, workflow: dict) -> dict:
+        # S3 storage (optional — initialized if credentials are available)
+        self.s3: Optional["S3Storage"] = None
+        if HAS_S3 and os.environ.get("S3_ACCESS_KEY_ID"):
+            try:
+                self.s3 = S3Storage()
+                print("☁️ S3 storage enabled")
+            except Exception as e:
+                print(f"⚠️ S3 storage disabled: {e}")
+
+        if self.comfyui_host:
+            # Strip trailing slash
+            self.comfyui_host = self.comfyui_host.rstrip("/")
+            print(f"🔗 ComfyUI Direct mode: {self.comfyui_host}")
+        elif self.api_key:
+            if not HAS_VASTAI_SDK:
+                raise ImportError(
+                    "vastai_sdk가 필요합니다: pip install vastai-sdk"
+                )
+            print("☁️ ComfyUI Serverless mode (Vast.ai)")
+        else:
+            raise ValueError(
+                "COMFYUI_HOST 또는 VAST_API_KEY 환경변수가 필요합니다"
+            )
+
+    # ----- Serverless backend -----
+
+    async def _submit_workflow_serverless(self, workflow: dict) -> dict:
         """Submit ComfyUI workflow to Vast.ai Serverless."""
         payload = {
             "input": {
@@ -143,6 +192,61 @@ class ComfyUIClient:
             )
             return result
 
+    def _run_serverless(self, workflow: dict) -> Optional[dict]:
+        """Execute workflow via Vast.ai Serverless SDK."""
+        result = asyncio.run(self._submit_workflow_serverless(workflow))
+        return self._extract_serverless_output(result)
+
+    @staticmethod
+    def _extract_serverless_output(result: dict) -> Optional[dict]:
+        """Extract output from Vast.ai Serverless response.
+
+        Vast.ai response format:
+          {"status": "...", "output": [...], "comfyui_response": {...}, ...}
+        """
+        if not result:
+            return None
+        if "output" in result:
+            outputs = result["output"]
+            if isinstance(outputs, list) and outputs:
+                return outputs[0]
+            return outputs
+        return result
+
+    # ----- Direct Instance backend -----
+
+    def _run_direct(self, workflow: dict) -> Optional[dict]:
+        """Execute workflow via Direct Instance HTTP API."""
+        prompt_id = submit_comfyui_workflow(self.comfyui_host, workflow)
+        print(f"📋 Prompt submitted: {prompt_id}")
+        outputs = poll_comfyui_result(self.comfyui_host, prompt_id)
+        if outputs:
+            return self._extract_direct_output(outputs)
+        return None
+
+    @staticmethod
+    def _extract_direct_output(outputs: dict) -> Optional[dict]:
+        """Extract output from ComfyUI /history response.
+
+        ComfyUI outputs format:
+          {"<node_id>": {"images": [...], "videos": [{"filename": "...", ...}]}}
+        """
+        for node_id, node_output in outputs.items():
+            if "videos" in node_output:
+                return node_output
+            if "images" in node_output:
+                return node_output
+        return None
+
+    # ----- Public API -----
+
+    def _run_workflow(self, workflow: dict) -> Optional[dict]:
+        """Route workflow to Direct or Serverless backend."""
+        if self.comfyui_host:
+            return self._run_direct(workflow)
+        else:
+            return self._run_serverless(workflow)
+
     def generate_video(
         self,
         prompt: str,
@@ -153,16 +257,26 @@ class ComfyUIClient:
         cfg: float = 3.5,
         model: str = "wan22-i2v-a14b",
         input_image: Optional[str] = None,
+        lightning: bool = False,
     ) -> Optional[dict]:
-        """Generate video via ComfyUI workflow."""
+        """Generate video via ComfyUI workflow.
+
+        Args:
+            lightning: Use Lightning LoRA for 4-step fast inference (3.9x speedup).
+        """
+        # Direct mode + I2V: upload image to ComfyUI first
+        if self.comfyui_host and input_image and os.path.isfile(input_image):
+            print(f"📤 Uploading image to ComfyUI: {input_image}")
+            input_image = upload_image_to_comfyui(self.comfyui_host, input_image)
+            print(f"   Uploaded as: {input_image}")
+
         workflow = self._build_video_workflow(
-            prompt, width, height, frames, steps, cfg, model, input_image
+            prompt, width, height, frames, steps, cfg, model, input_image, lightning
         )
         try:
-            result = asyncio.run(self._submit_workflow(workflow))
-            return self._extract_output(result)
+            return self._run_workflow(workflow)
         except Exception as e:
-            print(f"❌ Vast.ai error: {e}")
+            print(f"❌ ComfyUI error: {e}")
             return None
 
     def generate_image(
@@ -174,8 +288,7 @@ class ComfyUIClient:
         """Generate image via FLUX.2 Klein 4B workflow."""
         workflow = self._build_image_workflow(prompt, aspect_ratio)
         try:
-            result = asyncio.run(self._submit_workflow(workflow))
-            output = self._extract_output(result)
+            output = self._run_workflow(workflow)
             if output and "images" in output:
                 img = output["images"][0]
                 url_or_filename = img.get("url") or img.get("filename")
@@ -185,46 +298,87 @@ class ComfyUIClient:
             print(f"❌ Image generation error: {e}")
             return None
 
-    @staticmethod
-    def _extract_output(result: dict) -> Optional[dict]:
-        """Extract output from Vast.ai Serverless response.
-
-        Vast.ai response format:
-          {"status": "...", "output": [...], "comfyui_response": {...}, ...}
-        """
-        if not result:
-            return None
-        # Direct output from Serverless response
-        if "output" in result:
-            outputs = result["output"]
-            if isinstance(outputs, list) and outputs:
-                return outputs[0]
-            return outputs
-        # Fallback: raw response passthrough
-        return result
-
     def generate_cut_image(
         self,
         prompt: str,
         width: int = 480,
         height: int = 832,
         output_path: str = "/tmp/shorts/cut.png",
+        job_id: Optional[str] = None,
     ) -> Optional[str]:
-        """Generate cut image using configured provider."""
+        """Generate cut image using configured provider.
+
+        If job_id is provided and S3 is enabled, uploads to S3 as input_image.png.
+        """
         provider = CUT_IMAGE_PROVIDER
 
         if provider == "flux":
-            return self.generate_image(prompt, f"{width}:{height}", output_path)
+            result = self.generate_image(prompt, f"{width}:{height}", output_path)
         else:  # gemini (default)
-            return generate_image_gemini(prompt, width, height, output_path)
+            result = generate_image_gemini(prompt, width, height, output_path)
 
-    def download_result(self, result: dict, output_path: str) -> str:
-        """Download result from ComfyUI output."""
-        video = result.get("videos", [{}])[0] if "videos" in result else result
-        url_or_filename = video.get("url") or video.get("filename")
+        # Upload to S3 if available
+        if result and self.s3 and job_id:
+            self.upload_to_s3(result, job_id, "input_image.png")
+
+        return result
+
+    def download_result(
+        self, result: dict, output_path: str, job_id: Optional[str] = None, clip_name: Optional[str] = None,
+    ) -> str:
+        """Download result from ComfyUI output.
+
+        If job_id is provided and S3 is enabled, uploads to S3.
+        clip_name defaults to the output filename (e.g. "clip_01.mp4").
+        """
+        # Serverless: result has "videos" key directly
+        # Direct/On-Demand: result is {node_id: {images: [{filename, ...}]}} from /history
+        url_or_filename = None
+        if "videos" in result:
+            video = result["videos"][0] if result["videos"] else {}
+            url_or_filename = video.get("url") or video.get("filename")
+        else:
+            # Parse /history outputs: find first video/image file
+            for node_id, node_out in result.items():
+                for key in ("gifs", "images", "videos"):
+                    for item in node_out.get(key, []):
+                        fname = item.get("filename", "")
+                        if fname.endswith((".mp4", ".webm", ".gif")):
+                            url_or_filename = fname
+                            break
+                    if url_or_filename:
+                        break
+                if url_or_filename:
+                    break
         if not url_or_filename:
             raise ValueError("No output filename/url in result")
-        return self._download_output(url_or_filename, output_path)
+        local_path = self._download_output(url_or_filename, output_path)
+
+        # Upload to S3 if available
+        if self.s3 and job_id:
+            s3_filename = clip_name or os.path.basename(output_path)
+            self.upload_to_s3(local_path, job_id, s3_filename)
+
+        return local_path
+
+    def upload_to_s3(self, local_path: str, job_id: str, asset_name: str) -> Optional[str]:
+        """Upload a local file to S3 as a job asset.
+
+        Args:
+            local_path: Local file path
+            job_id: Job identifier
+            asset_name: Filename in S3 (e.g. "input_image.png", "clip_01.mp4")
+
+        Returns:
+            S3 URI if successful, None otherwise
+        """
+        if not self.s3:
+            return None
+        try:
+            return self.s3.upload_job_asset(local_path, job_id, asset_name)
+        except Exception as e:
+            print(f"⚠️ S3 upload failed ({asset_name}): {e}")
+            return None
 
     def _download_output(self, filename_or_url: str, output_path: str) -> str:
         """Download file from ComfyUI output to local path."""
@@ -235,7 +389,7 @@ class ComfyUIClient:
         else:
             raise ValueError(
                 "Serverless 모드에서는 download URL이 필요합니다. "
-                "On-Demand 모드에서는 comfyui_host를 설정하세요."
+                "Direct 모드에서는 COMFYUI_HOST를 설정하세요."
             )
         os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
         urllib.request.urlretrieve(url, output_path)
@@ -253,8 +407,14 @@ class ComfyUIClient:
         cfg: float = 3.5,
         model: str = "wan22-i2v-a14b",
         input_image: Optional[str] = None,
+        lightning: bool = False,
     ) -> dict:
-        """Build parameterized video workflow."""
+        """Build parameterized video workflow.
+
+        Args:
+            lightning: Use Lightning LoRA for 4-step fast inference (3.9x speedup).
+                       Only supported with wan22-i2v-a14b model.
+        """
         if model == "wan22-ti2v-5b":
             wf = _load_workflow("wan22_ti2v_5b")
             # T2V mode: replace LoadImage + I2V latent with empty latent
@@ -270,6 +430,9 @@ class ComfyUIClient:
                     },
                     "_meta": {"title": "Empty Latent (T2V)"},
                 }
+        elif lightning:
+            wf = _load_workflow("wan22_i2v_a14b_lightning")
+            steps = 4  # Lightning LoRA requires exactly 4 steps
         else:
             wf = _load_workflow("wan22_i2v_a14b")
 
@@ -432,7 +595,7 @@ def submit_comfyui_workflow(host: str, workflow: dict) -> str:
         return result["prompt_id"]
 
 
-def poll_comfyui_result(host: str, prompt_id: str, max_wait: int = 600) -> Optional[dict]:
+def poll_comfyui_result(host: str, prompt_id: str, max_wait: int = 2400) -> Optional[dict]:
     """GET /history/{prompt_id} — poll for result."""
     url = f"{host}/history/{prompt_id}"
     start = time.time()
@@ -505,25 +668,71 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="ComfyUI Client Test")
+    parser.add_argument("--host", type=str, help="ComfyUI host URL (e.g. http://localhost:8188)")
     parser.add_argument("--test-imagen", type=str, help="Test Imagen 4 Fast image generation")
     parser.add_argument("--test-flux", type=str, help="Test FLUX.2 Klein 4B image generation")
-    parser.add_argument("--output", "-o", default="/tmp/shorts/test_cut.png", help="Output path")
+    parser.add_argument("--test-video", type=str, help="Test video generation (I2V or T2V)")
+    parser.add_argument("--input-image", type=str, help="Input image path for I2V mode")
+    parser.add_argument("--model", default="wan22-i2v-a14b",
+                        choices=["wan22-i2v-a14b", "wan22-ti2v-5b"],
+                        help="Video model (default: wan22-i2v-a14b)")
+    parser.add_argument("--frames", type=int, default=81, help="Frame count (default: 81 ≈ 3.4s)")
+    parser.add_argument("--steps", type=int, default=20, help="Sampling steps (default: 20)")
+    parser.add_argument("--lightning", action="store_true",
+                        help="Use Lightning LoRA for 4-step fast inference (3.9x speedup)")
+    parser.add_argument("--output", "-o", default="/tmp/shorts/test_output", help="Output path")
     args = parser.parse_args()
 
     if args.test_imagen:
-        result = generate_image_gemini(args.test_imagen, output_path=args.output)
+        output = args.output if args.output != "/tmp/shorts/test_output" else "/tmp/shorts/test_cut.png"
+        result = generate_image_gemini(args.test_imagen, output_path=output)
         if result:
             print(f"✅ Imagen 4 Fast test passed: {result}")
         else:
             print("❌ Imagen 4 Fast test failed")
 
     elif args.test_flux:
-        client = ComfyUIClient()
-        result = client.generate_image(args.test_flux, output_path=args.output)
+        client = ComfyUIClient(comfyui_host=args.host)
+        output = args.output if args.output != "/tmp/shorts/test_output" else "/tmp/shorts/test_cut.png"
+        result = client.generate_image(args.test_flux, output_path=output)
         if result:
             print(f"✅ FLUX.2 Klein 4B test passed: {result}")
         else:
             print("❌ FLUX.2 Klein 4B test failed")
+
+    elif args.test_video:
+        client = ComfyUIClient(comfyui_host=args.host)
+        output = args.output if args.output != "/tmp/shorts/test_output" else "/tmp/shorts/test_video.mp4"
+
+        # Determine resolution
+        if "5b" in args.model:
+            width, height = 480, 832
+        else:
+            width, height = 720, 1280
+
+        print(f"🎬 Testing video generation...")
+        print(f"   Model: {args.model}")
+        print(f"   Resolution: {width}x{height}")
+        print(f"   Frames: {args.frames}")
+        print(f"   Steps: {4 if args.lightning else args.steps}")
+        print(f"   Lightning LoRA: {args.lightning}")
+        print(f"   Input image: {args.input_image or 'None (T2V)'}")
+
+        result = client.generate_video(
+            prompt=args.test_video,
+            width=width,
+            height=height,
+            frames=args.frames,
+            steps=args.steps,
+            model=args.model,
+            input_image=args.input_image,
+            lightning=args.lightning,
+        )
+        if result:
+            downloaded = client.download_result(result, output)
+            print(f"✅ Video test passed: {downloaded}")
+        else:
+            print("❌ Video test failed")
 
     else:
         parser.print_help()

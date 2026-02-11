@@ -15,6 +15,24 @@
     },
     "_meta": {"title": "Low Noise Expert (Pass 2)"}
   },
+  "20": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "model": ["1", 0],
+      "lora_name": "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+      "strength_model": 1.0
+    },
+    "_meta": {"title": "Lightning LoRA - High Noise"}
+  },
+  "21": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "model": ["2", 0],
+      "lora_name": "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+      "strength_model": 1.0
+    },
+    "_meta": {"title": "Lightning LoRA - Low Noise"}
+  },
   "3": {
     "class_type": "CLIPLoader",
     "inputs": {
@@ -83,38 +101,38 @@
     "inputs": {
       "add_noise": "enable",
       "noise_seed": "__RANDOM_INT__",
-      "steps": 20,
+      "steps": 4,
       "cfg": 3.5,
       "sampler_name": "euler",
       "scheduler": "beta",
       "start_at_step": 0,
-      "end_at_step": 10,
+      "end_at_step": 2,
       "return_with_leftover_noise": "enable",
-      "model": ["1", 0],
+      "model": ["20", 0],
       "positive": ["8", 0],
       "negative": ["8", 1],
       "latent_image": ["8", 2]
     },
-    "_meta": {"title": "Pass 1: High Noise (steps 0-10)"}
+    "_meta": {"title": "Pass 1: High Noise + Lightning LoRA (steps 0-2)"}
   },
   "11": {
     "class_type": "KSamplerAdvanced",
     "inputs": {
       "add_noise": "disable",
       "noise_seed": "__RANDOM_INT__",
-      "steps": 20,
+      "steps": 4,
       "cfg": 3.5,
       "sampler_name": "euler",
       "scheduler": "beta",
-      "start_at_step": 10,
+      "start_at_step": 2,
       "end_at_step": 10000,
       "return_with_leftover_noise": "disable",
-      "model": ["2", 0],
+      "model": ["21", 0],
       "positive": ["8", 0],
       "negative": ["8", 1],
       "latent_image": ["10", 0]
     },
-    "_meta": {"title": "Pass 2: Low Noise (steps 10+)"}
+    "_meta": {"title": "Pass 2: Low Noise + Lightning LoRA (steps 2-4)"}
   },
   "12": {
     "class_type": "VAEDecode",
@@ -136,7 +154,7 @@
     "class_type": "SaveVideo",
     "inputs": {
       "video": ["13", 0],
-      "filename_prefix": "wan22_a14b_output",
+      "filename_prefix": "wan22_a14b_lightning",
       "format": "mp4",
       "codec": "h264"
     },

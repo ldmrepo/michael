@@ -1,0 +1,18 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/gen-lang-client-0072871637/comfyui-wan22/wan22-i2v-14b:latest'
+      - '.'
+    timeout: '7200s'
+
+images:
+  - 'us-central1-docker.pkg.dev/gen-lang-client-0072871637/comfyui-wan22/wan22-i2v-14b:latest'
+
+options:
+  diskSizeGb: '200'
+  machineType: 'E2_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: '7200s'

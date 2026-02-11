@@ -50,7 +50,7 @@ def create_event(
 
     if all_day or date:
         # All-day event
-        event_date = date or start.split()[0] if start else datetime.now().strftime("%Y-%m-%d")
+        event_date = date or (start.split()[0] if start else datetime.now().strftime("%Y-%m-%d"))
         event["start"] = {"date": event_date}
         event["end"] = {"date": event_date}
     else:

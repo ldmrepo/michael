@@ -4,15 +4,18 @@
 
 ## 특징
 
-- 🌙 **24시간 깨어있기**: 데몬 프로세스로 항상 실행
+- 🌙 **24시간 깨어있기**: pm2/launchd 데몬으로 항상 실행
 - 🧠 **영구 메모리**: 모든 대화와 정보를 기억 (SQLite + 벡터 검색)
 - 💬 **멀티 채널**: Telegram, 웹 채팅, REST API 지원
 - 📱 **Mini App**: Telegram Mini App으로 복잡한 폼 입력 지원
 - ⏰ **능동적 알림**: 스케줄에 따라 먼저 알림 전송
 - 🤖 **Claude Code 기반**: Claude Code CLI 사용 (API 키 불필요)
 - 🔍 **시맨틱 검색**: 벡터 임베딩으로 관련 대화 자동 검색
-- 💰 **실시간 금융 데이터**: 주식, 암호화폐, 환율 조회 (yfinance, CoinGecko)
+- 💰 **투자 서비스**: Binance 포트폴리오 자동 모니터링 (14개 cron job + Telegram 알림)
+- 🎯 **예측 마켓**: Polymarket 자동 모니터링 (가격 추적, 고확률 스캔, 차익거래 감지)
+- 📊 **실시간 금융 데이터**: 주식, 암호화폐, 환율 조회 (yfinance, CoinGecko)
 - 🧘 **명상 생성기**: 맞춤형 명상 스크립트 생성 및 TTS 음성 변환 (OpenAI TTS)
+- 🎬 **비디오 생성**: ComfyUI + Wan2.2 I2V 기반 YouTube Shorts 자동 생성
 
 ## 중요: Claude Max vs Anthropic API
 
@@ -39,12 +42,14 @@
                            │
 ┌──────────────────────────▼──────────────────────────────────┐
 │                 Gateway (WebSocket) :18789                   │
-└───┬─────────────┬─────────────┬─────────────┬───────────────┘
-    │             │             │             │
-┌───▼───┐   ┌─────▼─────┐  ┌────▼────┐  ┌────▼────┐
-│Telegram│   │  Claude   │  │ Memory  │  │Scheduler│
-│Channel │   │  Agent    │  │ (SQLite)│  │ (Cron)  │
-└────────┘   └───────────┘  └─────────┘  └─────────┘
+└───┬─────────┬──────────┬──────────┬──────────┬──────────────┘
+    │         │          │          │          │
+┌───▼───┐ ┌──▼─────┐ ┌──▼────┐ ┌──▼─────┐ ┌──▼──────────────┐
+│Telegram│ │ Claude │ │Memory │ │Schedule│ │  Services       │
+│Channel │ │ Agent  │ │(SQLite│ │r(Cron) │ │  ├─Investment   │
+└────────┘ └────────┘ │+Vec)  │ └────────┘ │  └─Prediction  │
+                      └───────┘            │    Market      │
+                                           └─────────────────┘
 
 ┌─────────────────────────────────────────────────────────────┐
 │                 Finance Agent :8001 (A2A)                    │
@@ -90,6 +95,14 @@ WEBAPP_URL=https://your-domain.ngrok-free.dev
 
 # ngrok (Mini App HTTPS용)
 NGROK_AUTHTOKEN=<ngrok 인증 토큰>
+
+# 투자 서비스 (선택)
+BINANCE_API_KEY=<Binance API 키>
+BINANCE_API_SECRET=<Binance API 시크릿>
+
+# 예측 마켓 (선택)
+POLYMARKET_ENABLED=true
+POLYMARKET_PRIVATE_KEY=<EOA 프라이빗 키>  # 거래 실행 시만 필요
 
 # 임베딩 설정 (선택)
 EMBEDDING_PROVIDER=local  # local, openai, gemini
@@ -141,6 +154,26 @@ cd frontend && pnpm start  # 별도 터미널
 
 ### 데몬 모드 (24시간 실행)
 
+#### pm2 (권장)
+
+```bash
+# pm2 설치
+npm install -g pm2
+
+# 서비스 시작
+pm2 start ecosystem.config.cjs
+
+# 상태 확인 / 로그 보기
+pm2 status
+pm2 logs michael
+
+# 재시작 / 중지
+pm2 restart michael
+pm2 stop michael
+```
+
+#### launchd (macOS)
+
 ```bash
 # 데몬 설치
 bash scripts/install-daemon.sh
@@ -166,6 +199,8 @@ michael/
 │   ├── channels/       # Telegram, Web Channel
 │   ├── scheduler/      # Cron 스케줄러
 │   ├── agent/          # Claude Code Agent
+│   ├── investment/     # Binance 투자 모니터링 서비스
+│   ├── prediction-market/ # Polymarket 예측 마켓 모니터링
 │   ├── agents/         # 특화 에이전트
 │   │   ├── base/       # BaseA2UIAgentExecutor
 │   │   └── finance/    # Finance Agent (A2A 서버)
@@ -173,7 +208,8 @@ michael/
 │   ├── a2ui/           # A2UI 타입 및 유틸리티
 │   └── a2a/            # A2A 프로토콜
 ├── scripts/
-│   └── finance/        # 금융 API 스크립트 (yfinance, CoinGecko)
+│   ├── finance/        # 금융 API 스크립트 (yfinance, CoinGecko)
+│   └── youtube-shorts/ # ComfyUI 비디오 생성
 ├── frontend/           # 웹 프론트엔드 (Next.js)
 │   ├── app/            # Next.js App Router
 │   ├── components/a2ui/# A2UI 컴포넌트 렌더러
@@ -183,10 +219,12 @@ michael/
 ├── .claude/
 │   └── skills/         # Claude Code 스킬
 │       ├── finance/    # 금융 스킬
+│       ├── investment/ # Binance 투자 스킬
+│       ├── prediction-market/ # Polymarket 스킬
 │       ├── meditation/ # 명상 생성 스킬
-│       ├── a2a-protocol/
-│       ├── a2ui/
-│       └── agui/
+│       ├── calendar/   # Google Calendar 연동
+│       ├── gmail-integration/ # Gmail 연동
+│       └── ...
 ├── data/
 │   ├── memory.db       # 메인 DB (users, messages, facts, schedules)
 │   └── memory-index.db # 벡터 인덱스 DB (embeddings, chunks)
@@ -247,6 +285,29 @@ INTEGRATION_TESTS=true pnpm vitest run src/brain/memory.integration.test.ts
 **시간 옵션:** 3분, 5분, 10분
 
 **TTS 음성:** nova (기본, 차분한 여성), shimmer, onyx, alloy
+
+### 투자 서비스 (Telegram 자동 알림)
+
+Binance API 키와 Polymarket이 설정되면 자동으로 모니터링이 시작됩니다:
+
+**Binance Investment (14개 cron job)**
+- 포트폴리오 스냅샷 (4시간마다)
+- 가격 변동 감시 (10분마다, 5%+ 알림)
+- RSI/MA 기술 분석 (1시간마다)
+- 일일 브리핑 (매일 9시)
+
+**Prediction Market (5개 cron job)**
+- 고확률 마켓 스캔 (6시간마다)
+- 신규 마켓 감지 (4시간마다)
+- 가격 변동 추적 (15분마다, 5%+ 알림)
+- 차익거래 감지 (2시간마다)
+- 일일 브리핑 (매일 9시)
+
+**Telegram 콜백 버튼:**
+- `inv_portfolio` / `pm_portfolio` - 포트폴리오 요약
+- `inv_brief` / `pm_brief` - 수동 브리핑
+- `pm_scan` - 고확률 마켓 스캔
+- `pm_watchlist` - 워치리스트
 
 ### 금융 정보 질문 예시
 
@@ -354,18 +415,22 @@ curl -X POST http://localhost:8001/ \
 - [x] Phase 13: 웹 프론트엔드 통합 (Next.js + AG-UI + A2UI)
 - [x] Phase 14: Finance Agent (실시간 금융 데이터)
 - [x] Phase 15: Meditation Generator (명상 스크립트 + OpenAI TTS)
+- [x] Phase 16: Investment Service (Binance 포트폴리오 자동 모니터링)
+- [x] Phase 17: Prediction Market (Polymarket 자동 모니터링 + 알림)
+- [x] Phase 18: Video Generation (ComfyUI + Wan2.2 I2V, Lightning LoRA)
 
 ### 진행 예정
 
 - [ ] A2A Orchestrator 연동 (Finance Agent ↔ 메인 Agent)
 - [ ] 프로덕션 배포 (실제 도메인 + SSL)
 - [ ] 추가 채널 지원 (Slack, Discord)
-- [ ] 포트폴리오 분석 기능
+- [ ] PM 자동 거래 (블록체인 거래 실행 자동화)
 
 ## 문서
 
 - [API vs CLI 비교](docs/API_vs_CLI.md)
 - [프로토콜 아키텍처](docs/PROTOCOL_INTEGRATION_ARCHITECTURE.md)
+- [Prediction Market 사용 가이드](docs/PREDICTION-MARKET-USER-GUIDE.md)
 - [작업 이력](WORK_LOG.md)
 
 ## License

@@ -658,6 +658,21 @@ export class TelegramChannel {
         return;
       }
 
+      // Prediction Market 콜백은 PredictionMarketService로 라우팅 (pm_ prefix)
+      if (callbackData.startsWith('pm_')) {
+        this.sendToGateway({
+          from: 'telegram',
+          to: 'prediction-market',
+          userId,
+          content: callbackData,
+          metadata: {
+            chatId,
+            type: 'pm_callback',
+          },
+        });
+        return;
+      }
+
       // Gateway로 액션 전송
       this.sendToGateway({
         from: 'telegram',
