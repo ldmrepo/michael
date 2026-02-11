@@ -136,6 +136,15 @@ A2A 프로토콜 기반 재무 분석 에이전트 (:8001).
   - `stop()`: Finance Agent graceful shutdown 추가
 - 결과: `pnpm start` 하나로 전체 서비스 시작, health check 경고 해소
 
+### 14.6 분석 cron → Claude AI 라우팅 버그 수정 (2026-02-11)
+
+- 문제: `daily_brief`/`weekly_deep` cron job이 `analyze.py`를 직접 실행 후 `handleJobResult()`에서 alerts만 처리 → `AnalysisEngine`의 Claude 분석 + DB 저장을 건너뜀 → `market_regime`, `overall_score` 항상 null
+- 원인: 기존 3건의 분석 레코드는 Claude 통합 전에 생성 + cron 결과가 AnalysisEngine으로 라우팅되지 않음
+- 수정:
+  - `analysis-engine.ts`: `runAnalysis()`에서 보고서 처리를 `processReport()` 메서드로 분리
+  - `index.ts`: `handleJobResult()`에서 `daily_brief`/`weekly_deep` → `this.analysis.processReport()` 라우팅 추가
+- 검증: analyze.py → Claude CLI(`-p --model sonnet`) → YAML frontmatter 파싱 → DB 저장 (market_regime=risk_off, overall_score=-15) 정상 확인
+
 ---
 
 ## 미해결 이슈
@@ -149,6 +158,7 @@ A2A 프로토콜 기반 재무 분석 에이전트 (:8001).
 - **W4**: FedWatch 브라우저 수집 미구현 (현재 FRED API만)
 - **W5**: 브라우저 셀렉터 취약 (범용 CSS 클래스, 사이트 변경 시 깨짐)
 - ~~**Finance Agent 자동 시작**~~: ✅ 14.5에서 해결
+- ~~**분석 cron Claude AI 미연결**~~: ✅ 14.6에서 해결
 
 ---
 

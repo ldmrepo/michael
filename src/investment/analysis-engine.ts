@@ -38,56 +38,62 @@ export class AnalysisEngine {
     args.push('--user-id', userId);
 
     const output = await this.scheduler.spawnPython('analyze.py', args, `${type}_analysis`);
-
-    if (output.status === 'success' && output.report) {
-      try {
-        const reportData = JSON.parse(output.report);
-
-        // Build raw data summary first (fallback)
-        const rawSummary = this.formatBriefSummary(reportData, type);
-
-        // Attempt Claude AI analysis
-        let summary = rawSummary;
-        let marketRegime: string | undefined;
-        let overallScore: number | undefined;
-        let recommendations: string | undefined;
-
-        try {
-          const claudeResult = await this.analyzeWithClaude(reportData, type);
-          if (claudeResult) {
-            summary = claudeResult.summary;
-            marketRegime = claudeResult.marketRegime;
-            overallScore = claudeResult.overallScore;
-            recommendations = claudeResult.recommendations;
-          }
-        } catch (e) {
-          log('warn', `⚠️ Claude analysis failed, using raw summary: ${e}`);
-        }
-
-        // Store analysis with Claude-generated fields
-        const analysisId = this.store.insertAnalysis(
-          userId, type, summary,
-          marketRegime, overallScore,
-          output.report, recommendations,
-        );
-
-        // Send Telegram report
-        if (this.sendReport) {
-          const buttons = [
-            { text: '상세', data: `inv_analysis_detail:id=${analysisId}` },
-            { text: '포트폴리오', data: 'inv_portfolio' },
-            { text: '알림설정', data: 'inv_risk_settings' },
-          ];
-          this.sendReport(userId, summary, buttons);
-        }
-
-        log('info', `✅ ${type} analysis complete, id=${analysisId}${marketRegime ? `, regime=${marketRegime}` : ''}`);
-      } catch (e) {
-        log('error', `❌ Failed to process analysis: ${e}`);
-      }
-    }
-
+    await this.processReport(userId, type, output);
     return output;
+  }
+
+  /**
+   * Process analysis report: Claude AI analysis → DB storage → Telegram report
+   * Called by runAnalysis() and by scheduler job callback for daily_brief/weekly_deep
+   */
+  async processReport(userId: string, type: AnalysisType, output: ScriptOutput): Promise<void> {
+    if (output.status !== 'success' || !output.report) return;
+
+    try {
+      const reportData = JSON.parse(output.report);
+
+      // Build raw data summary first (fallback)
+      const rawSummary = this.formatBriefSummary(reportData, type);
+
+      // Attempt Claude AI analysis
+      let summary = rawSummary;
+      let marketRegime: string | undefined;
+      let overallScore: number | undefined;
+      let recommendations: string | undefined;
+
+      try {
+        const claudeResult = await this.analyzeWithClaude(reportData, type);
+        if (claudeResult) {
+          summary = claudeResult.summary;
+          marketRegime = claudeResult.marketRegime;
+          overallScore = claudeResult.overallScore;
+          recommendations = claudeResult.recommendations;
+        }
+      } catch (e) {
+        log('warn', `⚠️ Claude analysis failed, using raw summary: ${e}`);
+      }
+
+      // Store analysis with Claude-generated fields
+      const analysisId = this.store.insertAnalysis(
+        userId, type, summary,
+        marketRegime, overallScore,
+        output.report, recommendations,
+      );
+
+      // Send Telegram report
+      if (this.sendReport) {
+        const buttons = [
+          { text: '상세', data: `inv_analysis_detail:id=${analysisId}` },
+          { text: '포트폴리오', data: 'inv_portfolio' },
+          { text: '알림설정', data: 'inv_risk_settings' },
+        ];
+        this.sendReport(userId, summary, buttons);
+      }
+
+      log('info', `✅ ${type} analysis complete, id=${analysisId}${marketRegime ? `, regime=${marketRegime}` : ''}`);
+    } catch (e) {
+      log('error', `❌ Failed to process analysis: ${e}`);
+    }
   }
 
   /**

@@ -210,9 +210,19 @@ export class InvestmentService {
   }
 
   /**
-   * Handle completed job results (especially monitor alerts)
+   * Handle completed job results (analysis reports + monitor alerts)
    */
-  private handleJobResult(_jobName: string, output: ScriptOutput): void {
+  private handleJobResult(jobName: string, output: ScriptOutput): void {
+    // Route analysis jobs through AnalysisEngine for Claude AI analysis + DB storage
+    if (jobName === 'daily_brief') {
+      this.analysis.processReport(this.userId, 'daily', output);
+      return;
+    }
+    if (jobName === 'weekly_deep') {
+      this.analysis.processReport(this.userId, 'weekly', output);
+      return;
+    }
+
     if (output.alerts && output.alerts.length > 0) {
       this.risk.processAlerts(this.userId, output);
     }
