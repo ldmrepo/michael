@@ -4,7 +4,44 @@ import WebSocket from 'ws';
 
 describe('Gateway', () => {
   let gateway: Gateway;
-  const testPort = 18790; // 다른 포트 사용
+  // Use a random port to avoid EADDRINUSE between test runs
+  const testPort = 18790 + Math.floor(Math.random() * 1000);
+  let testClients: WebSocket[] = [];
+
+  function createTestClient(): WebSocket {
+    const client = new WebSocket(`ws://127.0.0.1:${testPort}`);
+    client.on('error', () => {}); // suppress uncaught ECONNREFUSED
+    testClients.push(client);
+    return client;
+  }
+
+  function closeClient(client: WebSocket): Promise<void> {
+    return new Promise((resolve) => {
+      if (client.readyState === WebSocket.CLOSED) { resolve(); return; }
+      client.on('close', () => resolve());
+      if (client.readyState === WebSocket.CONNECTING) {
+        client.on('open', () => client.close());
+        client.on('error', () => resolve());
+        return;
+      }
+      if (client.readyState !== WebSocket.CLOSING) { client.close(); }
+    });
+  }
+
+  function waitForOpen(client: WebSocket): Promise<void> {
+    return new Promise((resolve, reject) => {
+      client.on('open', () => resolve());
+      client.on('error', (err) => reject(err));
+    });
+  }
+
+  function waitForMessage(client: WebSocket): Promise<GatewayMessage> {
+    return new Promise((resolve) => {
+      client.once('message', (data) => {
+        resolve(JSON.parse(data.toString()));
+      });
+    });
+  }
 
   beforeEach(async () => {
     gateway = new Gateway(testPort);
@@ -12,216 +49,126 @@ describe('Gateway', () => {
   });
 
   afterEach(async () => {
+    await Promise.all(testClients.map(closeClient));
+    testClients = [];
     await gateway.close();
   });
 
   describe('Connection', () => {
-    it('should accept client connections', (done) => {
-      const client = new WebSocket(`ws://127.0.0.1:${testPort}`);
-
-      client.on('open', () => {
-        expect(client.readyState).toBe(WebSocket.OPEN);
-        client.close();
-        done();
-      });
-
-      client.on('error', (error) => {
-        done(error);
-      });
+    it('should accept client connections', async () => {
+      const client = createTestClient();
+      await waitForOpen(client);
+      expect(client.readyState).toBe(WebSocket.OPEN);
+      client.close();
     });
 
-    it('should send welcome message on connection', (done) => {
-      const client = new WebSocket(`ws://127.0.0.1:${testPort}`);
-
-      client.on('message', (data) => {
-        const message: GatewayMessage = JSON.parse(data.toString());
-        expect(message.content).toBe('Connected to Michael Gateway');
-        expect(message.from).toBe('agent');
-        expect(message.metadata).toHaveProperty('clientId');
-        client.close();
-        done();
-      });
+    it('should send welcome message on connection', async () => {
+      const client = createTestClient();
+      const message = await waitForMessage(client);
+      expect(message.content).toBe('Connected to Michael Gateway');
+      expect(message.from).toBe('agent');
+      expect(message.metadata).toHaveProperty('clientId');
+      client.close();
     });
 
-    it('should track connected clients', (done) => {
-      const client = new WebSocket(`ws://127.0.0.1:${testPort}`);
-
-      client.on('open', () => {
-        // 짧은 대기 후 클라이언트 목록 확인
-        setTimeout(() => {
-          const clients = gateway.getClients();
-          expect(clients.length).toBeGreaterThan(0);
-          client.close();
-          done();
-        }, 100);
-      });
+    it('should track connected clients', async () => {
+      const client = createTestClient();
+      await waitForOpen(client);
+      await new Promise((r) => setTimeout(r, 100));
+      const clients = gateway.getClients();
+      expect(clients.length).toBeGreaterThan(0);
+      client.close();
     });
   });
 
   describe('Messaging', () => {
-    it('should route messages between clients', (done) => {
-      const client1 = new WebSocket(`ws://127.0.0.1:${testPort}`);
-      const client2 = new WebSocket(`ws://127.0.0.1:${testPort}`);
+    it('should handle invalid JSON messages', async () => {
+      const client = createTestClient();
 
-      let welcomeCount = 0;
-      let client1Ready = false;
-      let client2Ready = false;
+      // Wait for welcome
+      await waitForMessage(client);
 
-      // Client1을 telegram으로 등록
-      client1.on('message', (data) => {
-        const message: GatewayMessage = JSON.parse(data.toString());
-        
-        if (message.content === 'Connected to Michael Gateway') {
-          welcomeCount++;
-          if (!client1Ready) {
-            client1Ready = true;
-            // Client1을 telegram으로 등록
-            client1.send(JSON.stringify({
-              from: 'telegram',
-              to: 'agent',
-              userId: 'user1',
-              content: 'Hello from telegram',
-            }));
-          }
-        }
-      });
+      // Send invalid JSON and wait for error response
+      const errorPromise = waitForMessage(client);
+      client.send('invalid json{');
+      const message = await errorPromise;
 
-      // Client2를 agent로 등록하고 메시지 수신 대기
-      client2.on('message', (data) => {
-        const message: GatewayMessage = JSON.parse(data.toString());
-        
-        if (message.content === 'Connected to Michael Gateway') {
-          welcomeCount++;
-          if (!client2Ready) {
-            client2Ready = true;
-            // Client2를 agent로 등록
-            client2.send(JSON.stringify({
-              from: 'agent',
-              to: 'telegram',
-              userId: 'system',
-              content: 'test registration',
-            }));
-          }
-        } else if (message.from === 'telegram') {
-          // Telegram으로부터 메시지 수신
-          expect(message.content).toBe('Hello from telegram');
-          expect(message.to).toBe('agent');
-          client1.close();
-          client2.close();
-          done();
-        }
-      });
-    });
-
-    it('should handle invalid JSON messages', (done) => {
-      const client = new WebSocket(`ws://127.0.0.1:${testPort}`);
-      let receivedWelcome = false;
-
-      client.on('message', (data) => {
-        const message: GatewayMessage = JSON.parse(data.toString());
-        
-        if (!receivedWelcome) {
-          receivedWelcome = true;
-          // 잘못된 JSON 전송
-          client.send('invalid json{');
-        } else {
-          // 에러 응답 수신
-          expect(message.content).toBe('Invalid message format');
-          expect(message.metadata).toHaveProperty('error');
-          client.close();
-          done();
-        }
-      });
+      expect(message.content).toBe('Invalid message format');
+      expect(message.metadata).toHaveProperty('error');
+      client.close();
     });
   });
 
   describe('Client Management', () => {
-    it('should remove disconnected clients', (done) => {
-      const client = new WebSocket(`ws://127.0.0.1:${testPort}`);
+    it('should remove disconnected clients', async () => {
+      const client = createTestClient();
+      await waitForOpen(client);
+      await new Promise((r) => setTimeout(r, 100));
 
-      client.on('open', () => {
-        setTimeout(() => {
-          const clientsBefore = gateway.getClients();
-          expect(clientsBefore.length).toBeGreaterThan(0);
+      const clientsBefore = gateway.getClients();
+      expect(clientsBefore.length).toBeGreaterThan(0);
 
-          client.close();
+      client.close();
+      await new Promise((r) => setTimeout(r, 100));
 
-          // 연결 종료 후 클라이언트 목록 확인
-          setTimeout(() => {
-            const clientsAfter = gateway.getClients();
-            expect(clientsAfter.length).toBeLessThan(clientsBefore.length);
-            done();
-          }, 100);
-        }, 100);
-      });
+      const clientsAfter = gateway.getClients();
+      expect(clientsAfter.length).toBeLessThan(clientsBefore.length);
     });
 
-    it('should handle multiple simultaneous connections', (done) => {
+    it('should handle multiple simultaneous connections', async () => {
       const clients: WebSocket[] = [];
-      let connectedCount = 0;
 
       for (let i = 0; i < 5; i++) {
-        const client = new WebSocket(`ws://127.0.0.1:${testPort}`);
+        const client = createTestClient();
         clients.push(client);
-
-        client.on('open', () => {
-          connectedCount++;
-          
-          if (connectedCount === 5) {
-            // 모든 클라이언트 연결 완료
-            setTimeout(() => {
-              const gatewayClients = gateway.getClients();
-              expect(gatewayClients.length).toBe(5);
-              
-              // 모든 클라이언트 종료
-              clients.forEach(c => c.close());
-              done();
-            }, 100);
-          }
-        });
       }
+
+      await Promise.all(clients.map(waitForOpen));
+      await new Promise((r) => setTimeout(r, 100));
+
+      const gatewayClients = gateway.getClients();
+      expect(gatewayClients.length).toBe(5);
+
+      clients.forEach(c => c.close());
     });
   });
 
   describe('Broadcast', () => {
-    it('should broadcast message to all clients', (done) => {
+    it('should broadcast message to all clients', async () => {
       const clients: WebSocket[] = [];
-      let welcomeCount = 0;
-      let broadcastCount = 0;
       const numClients = 3;
 
       for (let i = 0; i < numClients; i++) {
-        const client = new WebSocket(`ws://127.0.0.1:${testPort}`);
-        clients.push(client);
-
-        client.on('message', (data) => {
-          const message: GatewayMessage = JSON.parse(data.toString());
-          
-          if (message.content === 'Connected to Michael Gateway') {
-            welcomeCount++;
-            
-            // 마지막 클라이언트가 연결되면 브로드캐스트 테스트
-            if (welcomeCount === numClients) {
-              setTimeout(() => {
-                gateway.broadcast({
-                  from: 'agent',
-                  to: 'telegram',
-                  userId: 'system',
-                  content: 'Broadcast test',
-                });
-              }, 100);
-            }
-          } else if (message.content === 'Broadcast test') {
-            broadcastCount++;
-            
-            // 모든 클라이언트가 브로드캐스트를 받았는지 확인
-            if (broadcastCount === numClients) {
-              clients.forEach(c => c.close());
-              done();
-            }
-          }
-        });
+        clients.push(createTestClient());
       }
+
+      // Wait for all welcome messages
+      await Promise.all(clients.map(waitForMessage));
+
+      // Set up listeners for broadcast
+      const broadcastPromises = clients.map((client) =>
+        new Promise<GatewayMessage>((resolve) => {
+          client.on('message', (data) => {
+            const msg: GatewayMessage = JSON.parse(data.toString());
+            if (msg.content === 'Broadcast test') resolve(msg);
+          });
+        })
+      );
+
+      await new Promise((r) => setTimeout(r, 100));
+      gateway.broadcast({
+        from: 'agent',
+        to: 'telegram',
+        userId: 'system',
+        content: 'Broadcast test',
+      });
+
+      const results = await Promise.all(broadcastPromises);
+      results.forEach((msg) => {
+        expect(msg.content).toBe('Broadcast test');
+      });
+
+      clients.forEach(c => c.close());
     });
   });
 });

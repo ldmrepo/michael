@@ -1,9 +1,10 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, configDefaults } from 'vitest/config';
 
 export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    exclude: [...configDefaults.exclude, 'reference/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

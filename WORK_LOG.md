@@ -162,7 +162,52 @@ A2A 프로토콜 기반 재무 분석 에이전트 (:8001).
 
 ---
 
-## 현재 상태 (2026-02-11)
+## 2026-02-12 작업 내역
+
+### 15.1 docs/ 정리 (완료, 커밋 `34f725c`)
+
+- **삭제 9개**: 개발 과정 문서 (memory-porting-*, schema-migration-*, task2-*, vector-search-*, manager-modularization-*, 투자참조사이트 등)
+- **이동 2개**: `docs/INVESTMENT-USER-GUIDE.md` → `docs/guides/`, `docs/PREDICTION-MARKET-USER-GUIDE.md` → `docs/guides/`
+- **README.md**: 깨진 문서 링크 수정 (삭제/이동된 파일 → 새 경로)
+- **ARCHITECTURE.md**: 날짜 업데이트
+- **PROTOCOL_RESEARCH.md**: 상단에 "참고 자료" 노트 추가
+
+최종 docs/ 구조:
+```
+docs/
+├── API_vs_CLI.md
+├── ARCHITECTURE.md
+├── PROTOCOL_RESEARCH.md
+└── guides/
+    ├── INVESTMENT-USER-GUIDE.md
+    └── PREDICTION-MARKET-USER-GUIDE.md
+```
+
+### 15.2 X (Twitter) 프로필 설정 + 첫 트윗 + 팔로우 (완료, 커밋 `bd17b5f`)
+
+**프로필 설정** (Playwright 브라우저 자동화):
+- 계정: `@idongmyeon67121` (이동명)
+- Bio: "Software Developer | Building AI Agents & Web3 apps | TypeScript & Python | Sharing dev experiences and hard-won lessons"
+- Location: Seoul, South Korea
+
+**첫 트윗 게시** (KakaoTalk 봇 연결 경험 공유):
+> Connected my AI to KakaoTalk via Open Builder today.
+> Problem: 5s response limit, AI needs 10-60s.
+> Solution: Callback API - return "thinking..." instantly, POST real answer async.
+> Hidden gotcha: Callback toggle is buried in a kebab menu.
+> #DevLog #AI #KakaoTalk
+
+**개발자 10명 팔로우**:
+@karpathy, @rauchg, @youyuxi, @dan_abramov, @addyosmani, @levelsio, @ThePrimeagen, @kentcdodds, @swyx, @t3dotgg
+
+**X 스킬 전면 업데이트** (`.claude/skills/x/SKILL.md`):
+- `/compose/post` 사용 금지 (파일 선택 모달 누적 버그)
+- 홈 인라인 작성 + data-testid 셀렉터 + 오버레이 대응
+- 팔로우 자동화 코드, 한국어 UI 매핑, 실전 교훈 6개
+
+---
+
+## 현재 상태 (2026-02-12)
 
 ### 서비스 구성
 
@@ -171,15 +216,26 @@ A2A 프로토콜 기반 재무 분석 에이전트 (:8001).
 | Gateway | 18789 | WebSocket | 자동 (Michael 내장) |
 | HTTP Server | 3000 | HTTP | 자동 (Michael 내장) |
 | Telegram Bot | — | Polling | 자동 (Michael 내장) |
+| KakaoTalk Bot | — | Callback API (ngrok) | 자동 (Michael 내장) |
 | Investment Service | — | 내부 | 자동 (Michael 내장, 14 cron jobs) |
 | Finance Agent | 8001 | HTTP (A2A) | 자동 (Michael 내장) |
 | Web Frontend | 3001 | HTTP | 별도 실행 (`cd frontend && pnpm dev`) |
+
+### Git 상태
+
+- **브랜치**: main
+- **최신 커밋**: `bd17b5f` - refactor: X 스킬 실전 검증 기반 전면 업데이트
+- **원격**: 동기화 완료 (push 완료)
+- **Working tree**: clean
 
 ### 시작 명령
 
 ```bash
 # Michael 전체 서비스 (Gateway + HTTP + Telegram + Finance Agent + Investment)
 pnpm build && pnpm start
+
+# KakaoTalk 챗봇 (별도 터미널)
+ngrok http 3000 --domain=roxy-exoskeletal-shayla.ngrok-free.dev
 
 # Web Frontend (선택)
 cd frontend && pnpm dev
@@ -201,8 +257,18 @@ FRED_API_KEY=xxx
 INVESTMENT_MAX_ORDER_USD=10000
 INVESTMENT_PROPOSAL_EXPIRY_MIN=30
 FINANCE_AGENT_URL=http://127.0.0.1:8001
+
+# KakaoTalk
+KAKAO_REST_API_KEY=xxx
+KAKAO_BOT_ID=698dd7b4e9dbf31def3a1933
 ```
+
+### 다음 작업 후보
+
+- X 트윗 정기 게시 (개발 경험 공유 시리즈)
+- Prediction Market 포트폴리오 모니터링/리밸런싱
+- Investment Service 남은 이슈 (W2, W4, W5)
 
 ---
 
-*마지막 업데이트: 2026-02-11*
+*마지막 업데이트: 2026-02-12*
