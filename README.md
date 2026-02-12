@@ -432,9 +432,10 @@ curl -X POST http://localhost:8001/ \
 ## 문서
 
 - [API vs CLI 비교](docs/API_vs_CLI.md)
-- [프로토콜 아키텍처](docs/PROTOCOL_INTEGRATION_ARCHITECTURE.md)
-- [Prediction Market 사용 가이드](docs/PREDICTION-MARKET-USER-GUIDE.md)
-- [작업 이력](WORK_LOG.md)
+- [시스템 아키텍처](docs/ARCHITECTURE.md)
+- [프로토콜 리서치](docs/PROTOCOL_RESEARCH.md)
+- [투자 서비스 가이드](docs/guides/INVESTMENT-USER-GUIDE.md)
+- [예측 마켓 가이드](docs/guides/PREDICTION-MARKET-USER-GUIDE.md)
 
 ## License
 
