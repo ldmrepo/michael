@@ -1,8 +1,6 @@
 ---
 name: investment
 description: Personal cryptocurrency investment service with Binance API + browser automation
-version: 1.0.0
-tags: [crypto, binance, investment, trading, portfolio]
 ---
 
 # Investment Skill
@@ -130,6 +128,28 @@ python scripts/run.py execute_dca.py --user-id default --dry-run
   `investment_research`, `investment_analysis`, `investment_risk_alerts`,
   `investment_risk_thresholds`, `investment_proposals`, `investment_dca_schedules`
 - Browser state: `.claude/skills/investment/data/browser_state/`
+
+## 거래 데이터 동기화
+
+로컬 DB는 스냅샷일 뿐이므로 **분석/리밸런싱 전 반드시 동기화** 실행 (위 Portfolio 섹션 참조).
+
+### 핵심 교훈
+
+- **Binance API가 진실의 소스** — DB는 참고용. Spot(`account()`)과 Futures(`futures_position_information()`)를 별도 동기화
+- **동기화 전 분석/리밸런싱 금지** — 오래된 DB 기준으로 잘못된 매매 제안이 생성됨
+- **전체 자산 파악 시 PM도 동기화** — prediction-market 스킬 참조
+
+## Related Skills
+
+| Skill | Description |
+|-------|-------------|
+| [binance-futures-advanced](../binance-futures-advanced/SKILL.md) | 주문 유형 (Limit/Market/Stop/Trailing/TWAP/Scaled), 마진/레버리지/포지션 설정, TP/SL API |
+| [binance-analytics](../binance-analytics/SKILL.md) | Smart Money, Futures Trading Data, 옵션, Arbitrage, Heatmap, Fear & Greed, Fund Flow |
+| [binance-trading-bots](../binance-trading-bots/SKILL.md) | Grid/DCA/Snowball/Arbitrage/Rebalancing 봇 설정 및 브라우저 자동화 |
+| [binance-copy-trading](../binance-copy-trading/SKILL.md) | Copy Trading 리더보드, 복사 설정, 포트폴리오 관리 |
+| [prediction-market](../prediction-market/SKILL.md) | Polymarket 거래, 확률 베팅, 포트폴리오 동기화 |
+
+---
 
 ## Safety Features
 
