@@ -18,14 +18,39 @@ from polymarket_client import create_client
 from config import POLYMARKET_PROXY_WALLET
 
 
-def get_live_prices_gamma(client, market_ids):
-    """Fetch current prices from Gamma API for given market IDs"""
+def get_live_prices_gamma(client, market_ids, conn=None):
+    """Fetch current prices from Gamma API using slug (stored in DB).
+
+    The market_ids stored in DB are condition_ids which don't work with
+    Gamma's ?id= parameter. Instead, use slug from pm_markets table.
+    """
     prices = {}
     for mid in market_ids:
         try:
-            result = client._gamma_get("/markets", {"id": mid})
-            if result and isinstance(result, list) and len(result) > 0:
-                market = result[0]
+            # Get slug from DB
+            slug = None
+            if conn:
+                row = conn.execute("SELECT slug, question FROM pm_markets WHERE id = ?", (mid,)).fetchone()
+                if row:
+                    slug = row["slug"]
+
+            # Query by slug (reliable) or fall back to condition_id
+            market = None
+            if slug:
+                result = client._gamma_get("/markets", {"slug": slug})
+                if result and isinstance(result, list) and len(result) > 0:
+                    market = result[0]
+
+            if not market:
+                # Fallback: try condition_id
+                try:
+                    result = client._gamma_get("/markets", {"condition_id": mid})
+                    if result and isinstance(result, list) and len(result) > 0:
+                        market = result[0]
+                except Exception:
+                    pass
+
+            if market:
                 prices_raw = market.get("outcomePrices", "")
                 if isinstance(prices_raw, str):
                     try:
@@ -72,7 +97,7 @@ def main():
     # 3. Fetch live prices from Gamma API
     client = create_client()
     print("Fetching live prices from Gamma API...", file=sys.stderr)
-    live_prices = get_live_prices_gamma(client, market_ids)
+    live_prices = get_live_prices_gamma(client, market_ids, conn=conn)
 
     # 4. Get wallet balances
     print("Fetching wallet balances...", file=sys.stderr)

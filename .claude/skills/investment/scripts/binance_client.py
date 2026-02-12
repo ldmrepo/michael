@@ -179,6 +179,49 @@ class BinanceClient:
             "symbol": symbol, "leverage": leverage
         }, signed=True)
 
+    def create_stop_loss_order(self, symbol: str, side: str, stop_price: float,
+                               quantity: float = None, close_position: bool = False,
+                               position_side: str = "BOTH") -> Dict[str, Any]:
+        """Create a STOP_MARKET order for stop loss"""
+        params: Dict[str, Any] = {
+            "symbol": symbol,
+            "side": side,
+            "type": "STOP_MARKET",
+            "stopPrice": f"{stop_price}",
+            "positionSide": position_side,
+        }
+        if close_position:
+            params["closePosition"] = "true"
+        elif quantity:
+            params["quantity"] = f"{quantity}"
+            params["reduceOnly"] = "true"
+        return self._request("POST", f"{BINANCE_FUTURES_BASE}/fapi/v1/order", params, signed=True)
+
+    def create_take_profit_order(self, symbol: str, side: str, stop_price: float,
+                                  quantity: float = None, close_position: bool = False,
+                                  position_side: str = "BOTH") -> Dict[str, Any]:
+        """Create a TAKE_PROFIT_MARKET order for take profit"""
+        params: Dict[str, Any] = {
+            "symbol": symbol,
+            "side": side,
+            "type": "TAKE_PROFIT_MARKET",
+            "stopPrice": f"{stop_price}",
+            "positionSide": position_side,
+        }
+        if close_position:
+            params["closePosition"] = "true"
+        elif quantity:
+            params["quantity"] = f"{quantity}"
+            params["reduceOnly"] = "true"
+        return self._request("POST", f"{BINANCE_FUTURES_BASE}/fapi/v1/order", params, signed=True)
+
+    def get_futures_open_orders(self, symbol: str = None) -> List[Dict[str, Any]]:
+        """GET /fapi/v1/openOrders"""
+        params: Dict[str, Any] = {}
+        if symbol:
+            params["symbol"] = symbol
+        return self._request("GET", f"{BINANCE_FUTURES_BASE}/fapi/v1/openOrders", params, signed=True)
+
     # === Market Data (Public) ===
 
     def get_funding_rate(self, symbol: str = None, limit: int = 10) -> Any:

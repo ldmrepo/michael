@@ -88,9 +88,41 @@ def main():
                 price=proposal.get("price"),
             )
 
+        # Create SL/TP orders for futures positions
+        sl_tp_results = []
+        if proposal["account_type"] == "futures":
+            opposite_side = "SELL" if proposal["side"] == "BUY" else "BUY"
+            fill_qty = float(result.get("executedQty", proposal["quantity"]))
+
+            if proposal.get("stop_loss"):
+                try:
+                    sl_result = client.create_stop_loss_order(
+                        symbol=proposal["symbol"],
+                        side=opposite_side,
+                        stop_price=proposal["stop_loss"],
+                        close_position=True,
+                    )
+                    sl_tp_results.append({"type": "stop_loss", "order": sl_result})
+                except Exception as e:
+                    sl_tp_results.append({"type": "stop_loss", "error": str(e)})
+
+            if proposal.get("take_profit"):
+                try:
+                    tp_result = client.create_take_profit_order(
+                        symbol=proposal["symbol"],
+                        side=opposite_side,
+                        stop_price=proposal["take_profit"],
+                        close_position=True,
+                    )
+                    sl_tp_results.append({"type": "take_profit", "order": tp_result})
+                except Exception as e:
+                    sl_tp_results.append({"type": "take_profit", "error": str(e)})
+
+        result["sl_tp_orders"] = sl_tp_results
+
         # Update proposal status
         update_proposal_status(conn, args.proposal_id, "executed",
-                               json.dumps(result, ensure_ascii=False))
+                               json.dumps(result, ensure_ascii=False, default=str))
 
         # Record transaction
         fill_price = float(result.get("avgPrice") or result.get("price", 0))

@@ -226,8 +226,7 @@ def upsert_position(
             UPDATE pm_positions SET
                 size = size + ?,
                 entry_price = (entry_price * size + ? * ?) / (size + ?),
-                current_price = ?,
-                updated_at = strftime('%s','now')
+                current_price = ?
             WHERE id = ?
         """, (size, entry_price, size, size, current_price, existing["id"]))
         conn.commit()

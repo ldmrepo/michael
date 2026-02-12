@@ -177,17 +177,34 @@ class PolymarketClient:
 
         return self._gamma_get("/markets", params)
 
-    def get_market(self, market_id: str) -> Dict:
-        """Get detailed info for a single market by condition_id or slug"""
-        # Try by condition_id first
-        result = self._gamma_get("/markets", {"id": market_id})
-        if result and isinstance(result, list) and len(result) > 0:
-            return result[0]
+    def get_market(self, market_id: str, slug: str = None) -> Dict:
+        """Get detailed info for a single market.
 
-        # Try by slug
-        result = self._gamma_get("/markets", {"slug": market_id})
-        if result and isinstance(result, list) and len(result) > 0:
-            return result[0]
+        Args:
+            market_id: condition_id (0x... hex) or slug string
+            slug: if provided, used for Gamma API lookup (most reliable)
+        """
+        # Prefer slug-based lookup (exact 1:1 match)
+        if slug:
+            result = self._gamma_get("/markets", {"slug": slug})
+            if result and isinstance(result, list) and len(result) > 0:
+                return result[0]
+
+        # Try as slug if it looks like one (no 0x prefix)
+        if not market_id.startswith("0x"):
+            result = self._gamma_get("/markets", {"slug": market_id})
+            if result and isinstance(result, list) and len(result) > 0:
+                return result[0]
+
+        # Fallback: condition_id lookup + filter by exact match
+        result = self._gamma_get("/markets", {"condition_id": market_id})
+        if result and isinstance(result, list):
+            for m in result:
+                if m.get("conditionId") == market_id:
+                    return m
+            # If no exact match, return first result
+            if len(result) > 0:
+                return result[0]
 
         raise ValueError(f"Market not found: {market_id}")
 

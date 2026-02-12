@@ -736,6 +736,128 @@ for o in orders:
 
 ---
 
+## 고급 분석 & 리밸런싱 파이프라인
+
+3개 스크립트가 순서대로 파이프라인을 구성:
+
+```
+portfolio_intelligence.py → cross_asset_rebalancer.py → execute_rebalance_pm.py
+(신호 분석 + EV)           (통합 리밸런싱 플랜)          (CLOB 거래 실행)
+```
+
+### 1. portfolio_intelligence.py — 다중소스 확률 추정 엔진
+
+투자 리서치 데이터(매크로, 센티먼트, 볼륨, 모멘텀, 유동성, 뉴스, 온체인)를 종합하여
+각 PM 포지션의 Bayesian 확률과 Expected Value를 계산한다.
+
+**사용법:**
+```bash
+# 전체 포트폴리오 분석
+python scripts/portfolio_intelligence.py
+
+# 특정 마켓만 분석
+python scripts/portfolio_intelligence.py --market-id <condition_id>
+
+# JSON 출력 + 시그널 상세
+python scripts/portfolio_intelligence.py --json --verbose
+
+# Kelly 파라미터 조정
+python scripts/portfolio_intelligence.py --bankroll 500 --kelly-fraction 0.25
+```
+
+**시그널 가중치:**
+| 시그널 | 가중치 | 소스 |
+|--------|--------|------|
+| momentum | 20% | 가격 변동률 1h/24h/7d |
+| macro | 15% | FRED 금리/인플레이션 |
+| sentiment | 15% | Fear & Greed Index |
+| news | 15% | 뉴스 감성 분석 |
+| onchain | 15% | DeFi TVL 추세 |
+| volume | 10% | 24h 거래량 변화 |
+| liquidity | 10% | 오더북 깊이 |
+
+**출력:** `pm_intelligence` 테이블에 저장 (각 포지션별 true_prob, ev, kelly_size 등)
+
+### 2. cross_asset_rebalancer.py — 크로스 애셋 리밸런서
+
+PM 포지션 + Binance 보유 자산을 통합 포트폴리오로 분석하여 리밸런싱 플랜 생성.
+기본적으로 **dry-run** (실행 없이 플랜만 출력).
+
+**사용법:**
+```bash
+# PM + Binance 통합 리밸런싱 (기본: dry-run)
+python scripts/cross_asset_rebalancer.py
+
+# PM만 분석
+python scripts/cross_asset_rebalancer.py --pm-only
+
+# Binance만 분석
+python scripts/cross_asset_rebalancer.py --binance-only
+
+# 리스크 파라미터 조정
+python scripts/cross_asset_rebalancer.py --max-crypto-pct 50 --max-single-pct 10 --max-leverage 2.0
+
+# JSON 출력
+python scripts/cross_asset_rebalancer.py --json
+```
+
+**리스크 분석 항목:**
+- Herfindahl 집중도 지수 (HHI)
+- 단일 포지션/카테고리 비중 제한
+- 크립토 연관 PM 포지션 ↔ Binance 상관관계 분석
+- 플랫폼 간 자본 이동 최적화 (PM ↔ Binance)
+
+**출력:** `pm_cross_rebalances` 테이블에 각 포지션별 HOLD/ADD/REDUCE/EXIT 액션 저장
+
+### 3. execute_rebalance_pm.py — 리밸런싱 실행기
+
+`rebalance_engine.py`가 생성한 세션의 액션을 CLOB API로 실행.
+우선순위: EXIT → REDUCE → ADD 순서.
+
+**사용법:**
+```bash
+# 최근 세션 목록 확인
+python scripts/execute_rebalance_pm.py --list-sessions
+
+# 특정 세션 실행 (dry-run)
+python scripts/execute_rebalance_pm.py --session-id <id> --dry-run
+
+# 실제 실행 (확인 프롬프트 표시)
+python scripts/execute_rebalance_pm.py --session-id <id>
+
+# 강제 실행 (확인 생략)
+python scripts/execute_rebalance_pm.py --session-id <id> --force
+
+# EXIT 액션만 실행
+python scripts/execute_rebalance_pm.py --session-id <id> --action EXIT
+```
+
+**안전장치:**
+- 기본 dry-run (실행하려면 `--force` 필요)
+- 가격 변동 5%+ 경고 (PRICE_DRIFT_WARN_PCT)
+- 최대 3회 재시도 (MAX_RETRIES)
+- 주문 간 1초 쿨다운 (rate limit 방지)
+- 슬리피지 추적 및 실행 로그 감사 추적
+
+**출력:** `pm_execution_log` 테이블에 체결 내역 (fill_price, slippage, status 등)
+
+### 전체 파이프라인 실행 예시
+
+```bash
+# Step 1: 신호 분석 → EV 계산
+python scripts/portfolio_intelligence.py --verbose
+
+# Step 2: 통합 리밸런싱 플랜 생성
+python scripts/cross_asset_rebalancer.py
+
+# Step 3: 플랜 확인 후 실행
+python scripts/execute_rebalance_pm.py --list-sessions
+python scripts/execute_rebalance_pm.py --session-id <id> --dry-run
+python scripts/execute_rebalance_pm.py --session-id <id> --force
+```
+
+---
+
 ## References
 
 - **Polymarket API 기술 레퍼런스**: See [references/polymarket-api.md](references/polymarket-api.md) — API 아키텍처, 엔드포인트, 코드 예제
