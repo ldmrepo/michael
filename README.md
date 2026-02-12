@@ -217,14 +217,17 @@ michael/
 ├── ui/
 │   └── telegram-mini-app/  # Telegram Mini App (React)
 ├── .claude/
-│   └── skills/         # Claude Code 스킬
-│       ├── finance/    # 금융 스킬
-│       ├── investment/ # Binance 투자 스킬
-│       ├── prediction-market/ # Polymarket 스킬
-│       ├── meditation/ # 명상 생성 스킬
-│       ├── calendar/   # Google Calendar 연동
-│       ├── gmail-integration/ # Gmail 연동
-│       └── ...
+│   └── skills/         # Claude Code 스킬 (25개)
+│       ├── investment/           # Binance 투자 (hub)
+│       ├── binance-*/            # Binance 세부 (analytics, futures, bots, copy-trading)
+│       ├── prediction-market/    # Polymarket
+│       ├── finance/              # 주식/코인/환율
+│       ├── calendar/             # Google Calendar
+│       ├── gmail-integration/    # Gmail
+│       ├── kakaotalk-chatbot/    # KakaoTalk Open Builder
+│       ├── meditation/           # 명상 생성
+│       ├── youtube-shorts/       # YouTube Shorts
+│       └── ...                   # weather, news, maps, x, notebooklm 등
 ├── data/
 │   ├── memory.db       # 메인 DB (users, messages, facts, schedules)
 │   └── memory-index.db # 벡터 인덱스 DB (embeddings, chunks)
