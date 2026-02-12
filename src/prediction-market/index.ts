@@ -25,7 +25,7 @@ export class PredictionMarketService {
 
     // Initialize components
     this.store = new PmStore(db);
-    this.scheduler = new PmScheduler(userId);
+    this.scheduler = new PmScheduler();
 
     // Wire up scheduler job callbacks
     this.scheduler.setJobCallback((jobName, output) => {

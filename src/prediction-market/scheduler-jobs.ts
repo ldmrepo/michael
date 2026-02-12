@@ -34,11 +34,9 @@ type JobCallback = (jobName: string, output: PmScriptOutput) => void;
 
 export class PmScheduler {
   private jobs: Map<string, cron.ScheduledTask> = new Map();
-  private userId: string;
   private onJobComplete?: JobCallback;
 
-  constructor(userId: string = 'default') {
-    this.userId = userId;
+  constructor() {
   }
 
   /**
@@ -87,7 +85,7 @@ export class PmScheduler {
    */
   async runJob(job: PmJob): Promise<PmScriptOutput> {
     log('debug', `🏃 Running PM job: ${job.name}`);
-    const args = ['--user-id', this.userId, ...(job.args || [])];
+    const args = [...(job.args || [])];
     return this.spawnPython(job.script, args, job.name);
   }
 
@@ -125,7 +123,7 @@ export class PmScheduler {
 
       proc.on('close', (code) => {
         if (stderr) {
-          log('debug', `⚠️ ${script} stderr: ${stderr.substring(0, 200)}`);
+          log('warn', `⚠️ ${script} stderr: ${stderr.substring(0, 200)}`);
         }
 
         let output: PmScriptOutput;
