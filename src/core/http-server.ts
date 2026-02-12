@@ -181,6 +181,11 @@ export class HttpServer {
       await this.handleChat(req, res);
     });
 
+    // API: KakaoTalk Open Builder Skill Server
+    this.app.post('/api/kakao/skill', async (req: Request, res: Response) => {
+      await this.handleKakaoSkill(req, res);
+    });
+
     // API: Finance Agent delegation via Orchestrator
     this.app.post('/api/finance/chat', async (req: Request, res: Response) => {
       await this.handleFinanceChat(req, res);
@@ -408,6 +413,138 @@ export class HttpServer {
       log('error', `Chat failed: ${errorMessage}`);
       res.status(500).json({ error: errorMessage });
     }
+  }
+
+  /**
+   * Handle KakaoTalk Open Builder Skill request
+   *
+   * KakaoTalk sends POST with userRequest.utterance (user message).
+   * If callbackUrl is present, uses Callback API (async response up to 1 min).
+   * Otherwise, responds synchronously within 4.5s timeout.
+   */
+  private async handleKakaoSkill(req: Request, res: Response): Promise<void> {
+    const body = req.body;
+    const utterance = body?.userRequest?.utterance;
+    const kakaoUserId = body?.userRequest?.user?.id;
+    const callbackUrl = body?.userRequest?.callbackUrl;
+
+    log('info', `💬 KakaoTalk skill request: "${utterance?.substring(0, 50)}" from ${kakaoUserId}${callbackUrl ? ' (callback)' : ' (sync)'}`);
+
+    if (!utterance) {
+      res.json(this.kakaoTextResponse('메시지를 입력해주세요.'));
+      return;
+    }
+
+    if (!this.agent) {
+      res.json(this.kakaoTextResponse('AI 에이전트가 준비되지 않았습니다. 잠시 후 다시 시도해주세요.'));
+      return;
+    }
+
+    const userId = `kakao_${kakaoUserId}`;
+
+    // Callback API: return immediate response, send actual response async
+    if (callbackUrl) {
+      res.json({
+        version: '2.0',
+        useCallback: true,
+        template: {
+          outputs: [{ simpleText: { text: '생각하고 있어요... 🤔' } }],
+        },
+      });
+
+      // Process async and POST result to callbackUrl
+      this.processKakaoCallback(userId, utterance, callbackUrl);
+      return;
+    }
+
+    // Synchronous mode: 4.5s timeout
+    try {
+      const KAKAO_TIMEOUT = 4500;
+
+      const responsePromise = this.agent.chat(userId, utterance);
+      const timeoutPromise = new Promise<null>((resolve) =>
+        setTimeout(() => resolve(null), KAKAO_TIMEOUT)
+      );
+
+      const response = await Promise.race([responsePromise, timeoutPromise]);
+
+      if (response === null) {
+        log('warn', `⏰ KakaoTalk skill timeout for: "${utterance.substring(0, 30)}"`);
+        res.json(this.kakaoTextResponse(
+          '답변을 준비하는 중이에요. 잠시 후 다시 물어봐주세요! 🙏'
+        ));
+        return;
+      }
+
+      const truncated = response.length > 1000
+        ? response.substring(0, 997) + '...'
+        : response;
+
+      res.json(this.kakaoTextResponse(truncated));
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      log('error', `❌ KakaoTalk skill error: ${errorMessage}`);
+      res.json(this.kakaoTextResponse(
+        '죄송합니다. 오류가 발생했어요. 잠시 후 다시 시도해주세요.'
+      ));
+    }
+  }
+
+  /**
+   * Process KakaoTalk Callback API (async AI response)
+   */
+  private async processKakaoCallback(userId: string, utterance: string, callbackUrl: string): Promise<void> {
+    try {
+      const response = await this.agent!.chat(userId, utterance);
+
+      const truncated = response.length > 1000
+        ? response.substring(0, 997) + '...'
+        : response;
+
+      const callbackBody = this.kakaoTextResponse(truncated);
+
+      const result = await fetch(callbackUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(callbackBody),
+      });
+
+      log('info', `📤 KakaoTalk callback sent: ${result.status} for "${utterance.substring(0, 30)}"`);
+      log('debug', `📤 Callback response: ${truncated.substring(0, 100)}`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      log('error', `❌ KakaoTalk callback error: ${errorMessage}`);
+
+      // Try to send error message via callback
+      try {
+        await fetch(callbackUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.kakaoTextResponse(
+            '죄송합니다. 오류가 발생했어요. 다시 물어봐주세요.'
+          )),
+        });
+      } catch {
+        log('error', '❌ KakaoTalk callback error response also failed');
+      }
+    }
+  }
+
+  /**
+   * Create KakaoTalk skill response with simpleText
+   */
+  private kakaoTextResponse(text: string): object {
+    return {
+      version: '2.0',
+      template: {
+        outputs: [
+          {
+            simpleText: { text },
+          },
+        ],
+      },
+    };
   }
 
   /**

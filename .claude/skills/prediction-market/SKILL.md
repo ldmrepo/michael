@@ -523,6 +523,101 @@ factory.proxy(calls)  # EOA에서 서명, 가스비 ~154K gas
 | 19 | **web3.py POA 미들웨어** | `ExtraDataToPOAMiddleware` 필수 (Polygon은 POA 체인) |
 | 20 | **Binance 화이트리스트** | USDC/Polygon과 POL/Polygon은 별도 등록 |
 
+#### 데이터 동기화 관련
+| # | 교훈 | 상세 |
+|---|------|------|
+| 21 | **DB ≠ 실제 보유** | 로컬 DB(`pm_positions`)는 주문 실행 시 기록된 스냅샷. 이후 매도/정산/만료로 실제와 불일치 가능 |
+| 22 | **CLOB API가 진실의 소스** | `clob.get_positions()`가 반환하는 것이 현재 실제 보유 포지션. DB에 없는 포지션이 있거나, DB에는 있지만 실제로 매도/정산된 포지션 존재 가능 |
+| 23 | **P&L 불일치 원인** | DB 기반 P&L 계산과 폴리마켓 UI P&L이 다르면 십중팔구 DB 미동기화. 매도된 포지션이 DB에 `open`으로 남아있거나, 정산된 마켓의 실현 손익이 반영 안 됨 |
+| 24 | **모순 포지션 방지** | 같은 이벤트에 YES/NO 동시 베팅 금지. 리밸런싱 엔진에 모순 체크 로직 필수 (예: Fed 동결 YES + Fed 인하 YES = 모순) |
+| 25 | **저확률 YES 주의** | 가격 $0.05~0.10 YES = 확률 5~10%. "싸니까 매수"가 아니라 "안 일어날 이벤트". 확률 10% 미만 YES에 큰 금액 투입 금지 |
+
+---
+
+## 거래 데이터 동기화 확인 가이드
+
+### 왜 동기화가 필요한가?
+
+로컬 DB(`pm_positions` 테이블)는 주문 실행 시점의 스냅샷일 뿐이다. 다음 상황에서 실제 폴리마켓 보유 포지션과 불일치가 발생한다:
+
+1. **폴리마켓 UI에서 직접 매도** — DB에 반영 안 됨
+2. **마켓 정산(resolved)** — DB status가 `open` 그대로 남음
+3. **MERGE/REDEEM 실행** — YES+NO 쌍 소멸, DB 미반영
+4. **부분 체결** — 주문의 일부만 체결되었는데 DB에는 전량 기록
+
+### 동기화 절차 (수동)
+
+```bash
+# Step 1: 폴리마켓 API에서 실제 보유 포지션 조회
+python -c "
+from polymarket_client import create_client
+client = create_client()
+positions = client.get_positions()
+import json
+print(json.dumps(positions, indent=2))
+"
+
+# Step 2: DB의 열린 포지션 조회
+python -c "
+import db_utils
+conn = db_utils.get_connection()
+positions = db_utils.get_positions(conn, 'default', 'open')
+for p in positions:
+    print(f'{p[\"side\"]:>3} | size={p[\"size\"]:>6.1f} | entry={p[\"entry_price\"]:.4f} | {p[\"market_id\"][:20]}...')
+conn.close()
+"
+
+# Step 3: 차이 확인 후 DB 업데이트
+# - API에는 없는데 DB에 open인 포지션 → closed/settled로 변경
+# - API에는 있는데 DB에 없는 포지션 → upsert
+```
+
+### 동기화 체크리스트
+
+포트폴리오 체크(`check_portfolio.py`) 실행 전 반드시 확인:
+
+1. *CLOB API 포지션 수 vs DB open 포지션 수* — 불일치 시 동기화 필요
+2. *P&L 불일치* — 폴리마켓 UI의 Profit/Loss와 DB 계산 결과 비교
+3. *정산된 마켓* — Gamma API에서 `closed: true`인 마켓의 DB 포지션 → `settled`로 업데이트
+4. *거래 내역 대조* — `clob.get_trades()`로 매도 이력 확인, DB에 미반영된 매도 건 처리
+
+### 자동 동기화 구현 가이드
+
+`check_portfolio.py`에 `--sync` 플래그 추가 시 구현 순서:
+
+```python
+def sync_positions(client, conn, user_id="default"):
+    """Sync DB positions with CLOB API actual holdings."""
+    # 1. CLOB API에서 실제 포지션 가져오기
+    api_positions = client.get_positions()
+    api_token_ids = {p["asset"]: p for p in api_positions}  # token_id → position
+
+    # 2. DB의 open 포지션 가져오기
+    db_positions = db_utils.get_positions(conn, user_id, "open")
+
+    # 3. DB에만 있고 API에 없는 것 → closed 처리
+    for db_pos in db_positions:
+        token_id = db_pos.get("token_id")
+        if token_id and token_id not in api_token_ids:
+            # 매도/정산된 포지션 → closed
+            db_utils.close_position(conn, db_pos["id"], exit_price=0)
+            print(f"  [SYNC] Closed: {db_pos['side']} {db_pos['market_id'][:30]}")
+
+    # 4. API에만 있고 DB에 없는 것 → upsert
+    for token_id, api_pos in api_token_ids.items():
+        # market_id (condition_id) 매핑 후 upsert
+        pass
+
+    conn.commit()
+```
+
+### 주의사항
+
+- CLOB `get_positions()` 반환 형식은 `[{"asset": "token_id", "size": "10.5", ...}]`
+- `asset` 필드가 token_id (YES/NO 구분). market_id(condition_id)와 다름
+- token_id → market_id 매핑은 `pm_markets` 테이블의 `yes_token_id`/`no_token_id` 참조
+- 동기화 후 반드시 `check_portfolio.py`로 검증
+
 ---
 
 ## CLOB 거래 실행 가이드
