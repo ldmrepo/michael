@@ -45,35 +45,52 @@ export class FinanceAgentExecutor extends BaseA2UIAgentExecutor {
       log('debug', `🤖 [${this.AGENT_NAME}] Prompt length: ${prompt.length}`);
 
       // Spawn Claude CLI process with CLAUDE_PROJECT_DIR set
-      this.process = spawn('claude', args, {
+      // CLAUDECODE 환경변수 제거하여 중첩 세션 방지
+      const env: Record<string, string | undefined> = { ...process.env, CLAUDE_PROJECT_DIR: process.cwd() };
+      delete env.CLAUDECODE;
+      delete env.CLAUDE_CODE_ENTRYPOINT;
+
+      let settled = false;
+      const proc = spawn('claude', args, {
         stdio: ['pipe', 'pipe', 'pipe'],
         cwd: process.cwd(),
-        env: {
-          ...process.env,
-          CLAUDE_PROJECT_DIR: process.cwd(),
-        },
+        env,
       });
+      this.activeProcesses.add(proc);
+
+      // 2분 타임아웃
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          proc.kill();
+          this.activeProcesses.delete(proc);
+          reject(new Error(`[${this.AGENT_NAME}] Claude CLI timeout (120s)`));
+        }
+      }, 120000);
 
       // Send prompt via stdin
-      if (this.process.stdin) {
-        this.process.stdin.write(prompt);
-        this.process.stdin.end();
+      if (proc.stdin) {
+        proc.stdin.write(prompt);
+        proc.stdin.end();
       }
 
       let stdout = '';
       let stderr = '';
 
-      this.process.stdout?.on('data', (data) => {
+      proc.stdout?.on('data', (data) => {
         stdout += data.toString();
       });
 
-      this.process.stderr?.on('data', (data) => {
+      proc.stderr?.on('data', (data) => {
         stderr += data.toString();
-        log('debug', `[${this.AGENT_NAME}] stderr: ${data.toString()}`);
+        log('warn', `[${this.AGENT_NAME}] stderr: ${data.toString()}`);
       });
 
-      this.process.on('close', (code) => {
-        this.process = null;
+      proc.on('close', (code) => {
+        clearTimeout(timeout);
+        this.activeProcesses.delete(proc);
+        if (settled) return;
+        settled = true;
 
         if (code !== 0) {
           log('error', `❌ [${this.AGENT_NAME}] Claude CLI failed with code ${code}: ${stderr}`);
@@ -87,7 +104,11 @@ export class FinanceAgentExecutor extends BaseA2UIAgentExecutor {
         resolve(response);
       });
 
-      this.process.on('error', (error) => {
+      proc.on('error', (error) => {
+        clearTimeout(timeout);
+        this.activeProcesses.delete(proc);
+        if (settled) return;
+        settled = true;
         log('error', `❌ [${this.AGENT_NAME}] Claude CLI process error: ${error.message}`);
         reject(error);
       });

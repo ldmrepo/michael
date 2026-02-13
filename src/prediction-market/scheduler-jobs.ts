@@ -59,7 +59,7 @@ export class PmScheduler {
       }
 
       const task = cron.schedule(job.cron, () => {
-        this.runJob(job);
+        this.runJob(job).catch(err => log('error', `❌ PM job ${job.name} failed: ${err}`));
       });
 
       this.jobs.set(job.name, task);
@@ -112,6 +112,36 @@ export class PmScheduler {
 
       let stdout = '';
       let stderr = '';
+      let settled = false;
+
+      const safeResolve = (output: PmScriptOutput) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+
+        const name = jobName || script;
+        if (output.status === 'success') {
+          log('debug', `✅ PM ${name}: ${output.message}`);
+        } else {
+          log('warn', `❌ PM ${name}: ${output.message}`);
+        }
+
+        if (this.onJobComplete) {
+          this.onJobComplete(name, output);
+        }
+
+        resolve(output);
+      };
+
+      // 5분 타임아웃
+      const timeout = setTimeout(() => {
+        proc.kill();
+        safeResolve({
+          status: 'error',
+          message: `Timeout: ${script} exceeded 5 minutes`,
+          timestamp: Math.floor(Date.now() / 1000),
+        });
+      }, 5 * 60 * 1000);
 
       proc.stdout.on('data', (data) => {
         stdout += data.toString();
@@ -144,27 +174,15 @@ export class PmScheduler {
           };
         }
 
-        const name = jobName || script;
-        if (output.status === 'success') {
-          log('debug', `✅ PM ${name}: ${output.message}`);
-        } else {
-          log('warn', `❌ PM ${name}: ${output.message}`);
-        }
-
-        if (this.onJobComplete) {
-          this.onJobComplete(name, output);
-        }
-
-        resolve(output);
+        safeResolve(output);
       });
 
       proc.on('error', (err) => {
-        const output: PmScriptOutput = {
+        safeResolve({
           status: 'error',
           message: `Spawn error: ${err.message}`,
           timestamp: Math.floor(Date.now() / 1000),
-        };
-        resolve(output);
+        });
       });
     });
   }

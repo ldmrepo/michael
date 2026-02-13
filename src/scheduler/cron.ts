@@ -68,8 +68,8 @@ export class Scheduler {
       }
 
       // Cron 작업 생성
-      const task = cron.schedule(schedule.cronExpression, async () => {
-        await this.executeJob(schedule);
+      const task = cron.schedule(schedule.cronExpression, () => {
+        this.executeJob(schedule).catch(err => log('error', `❌ Cron job ${schedule.id} failed: ${err}`));
       });
 
       // 작업 저장
@@ -154,23 +154,27 @@ export class Scheduler {
     log('info', `⏰ One-time schedule: "${message}" in ${minutes}min (id: ${scheduleId})`);
 
     const timer = setTimeout(() => {
-      log('info', `🔔 Executing one-time job: ${scheduleId}`);
+      try {
+        log('info', `🔔 Executing one-time job: ${scheduleId}`);
 
-      this.gateway.broadcast({
-        from: 'scheduler',
-        to: 'telegram',
-        userId,
-        content: message,
-        metadata: {
-          chatId: Number(userId),
-          scheduleId,
-          oneTime: true,
-        },
-      });
+        this.gateway.broadcast({
+          from: 'scheduler',
+          to: 'telegram',
+          userId,
+          content: message,
+          metadata: {
+            chatId: Number(userId),
+            scheduleId,
+            oneTime: true,
+          },
+        });
 
-      // 타이머 정리
-      this.oneTimeJobs.delete(scheduleId);
-      log('info', `✅ One-time job completed and removed: ${scheduleId}`);
+        log('info', `✅ One-time job completed: ${scheduleId}`);
+      } catch (error) {
+        log('error', `❌ One-time job ${scheduleId} failed: ${error}`);
+      } finally {
+        this.oneTimeJobs.delete(scheduleId);
+      }
     }, delayMs);
 
     this.oneTimeJobs.set(scheduleId, timer);

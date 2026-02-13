@@ -61,8 +61,8 @@ export abstract class BaseA2UIAgentExecutor {
   /** Prefix for artifact naming */
   protected abstract readonly ARTIFACT_PREFIX: string;
 
-  /** Current CLI process */
-  protected process: ChildProcess | null = null;
+  /** Active CLI processes */
+  protected activeProcesses: Set<ChildProcess> = new Set();
 
   /** Model to use (optional, uses claude default if not set) */
   protected model?: string;
@@ -130,31 +130,51 @@ export abstract class BaseA2UIAgentExecutor {
 
       log('debug', `🤖 [${this.AGENT_NAME}] Executing Claude CLI with prompt length: ${prompt.length}`);
 
-      // Spawn Claude CLI process
-      this.process = spawn('claude', args, {
+      // Spawn Claude CLI process (CLAUDECODE 환경변수 제거하여 중첩 세션 방지)
+      const env = { ...process.env };
+      delete env.CLAUDECODE;
+      delete env.CLAUDE_CODE_ENTRYPOINT;
+
+      let settled = false;
+      const proc = spawn('claude', args, {
         stdio: ['pipe', 'pipe', 'pipe'],
+        env,
       });
+      this.activeProcesses.add(proc);
+
+      // 2분 타임아웃
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          proc.kill();
+          this.activeProcesses.delete(proc);
+          reject(new Error(`[${this.AGENT_NAME}] Claude CLI timeout (120s)`));
+        }
+      }, 120000);
 
       // Send prompt via stdin
-      if (this.process.stdin) {
-        this.process.stdin.write(prompt);
-        this.process.stdin.end();
+      if (proc.stdin) {
+        proc.stdin.write(prompt);
+        proc.stdin.end();
       }
 
       let stdout = '';
       let stderr = '';
 
-      this.process.stdout?.on('data', (data) => {
+      proc.stdout?.on('data', (data) => {
         stdout += data.toString();
       });
 
-      this.process.stderr?.on('data', (data) => {
+      proc.stderr?.on('data', (data) => {
         stderr += data.toString();
-        log('debug', `[${this.AGENT_NAME}] stderr: ${data.toString()}`);
+        log('warn', `[${this.AGENT_NAME}] stderr: ${data.toString()}`);
       });
 
-      this.process.on('close', (code) => {
-        this.process = null;
+      proc.on('close', (code) => {
+        clearTimeout(timeout);
+        this.activeProcesses.delete(proc);
+        if (settled) return;
+        settled = true;
 
         if (code !== 0) {
           log('error', `❌ [${this.AGENT_NAME}] Claude CLI failed with code ${code}: ${stderr}`);
@@ -168,7 +188,11 @@ export abstract class BaseA2UIAgentExecutor {
         resolve(response);
       });
 
-      this.process.on('error', (error) => {
+      proc.on('error', (error) => {
+        clearTimeout(timeout);
+        this.activeProcesses.delete(proc);
+        if (settled) return;
+        settled = true;
         log('error', `❌ [${this.AGENT_NAME}] Claude CLI process error: ${error.message}`);
         reject(error);
       });
@@ -297,9 +321,9 @@ export abstract class BaseA2UIAgentExecutor {
    * Close any running process
    */
   close(): void {
-    if (this.process) {
-      this.process.kill();
-      this.process = null;
+    for (const proc of this.activeProcesses) {
+      proc.kill();
     }
+    this.activeProcesses.clear();
   }
 }

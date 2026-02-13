@@ -57,7 +57,7 @@ export interface StreamingCallbacks {
 export class ClaudeCodeAgent {
   private memory: Memory;
   private scheduler: Scheduler | null = null;
-  private process: ChildProcess | null = null;
+  private activeProcesses: Set<ChildProcess> = new Set();
 
   constructor(memory: Memory) {
     this.memory = memory;
@@ -303,7 +303,7 @@ Please respond to the user's message:
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       const args: string[] = ['-p']; // print mode
-      
+
       // 프롬프트를 stdin으로 전달하기 위해 별도 처리
 
       // 옵션 추가
@@ -317,31 +317,51 @@ Please respond to the user's message:
 
       log('debug', `🤖 Executing Claude Code with prompt length: ${prompt.length}`);
 
-      // Claude Code CLI 실행
-      this.process = spawn('claude', args, {
+      // Claude Code CLI 실행 (CLAUDECODE 환경변수 제거하여 중첩 세션 방지)
+      const env = { ...process.env };
+      delete env.CLAUDECODE;
+      delete env.CLAUDE_CODE_ENTRYPOINT;
+
+      let settled = false;
+      const proc = spawn('claude', args, {
         stdio: ['pipe', 'pipe', 'pipe'],
+        env,
       });
+      this.activeProcesses.add(proc);
+
+      // 2분 타임아웃
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          proc.kill();
+          this.activeProcesses.delete(proc);
+          reject(new Error('Claude Code timeout (120s)'));
+        }
+      }, 120000);
 
       // 프롬프트를 stdin으로 전달
-      if (this.process.stdin) {
-        this.process.stdin.write(prompt);
-        this.process.stdin.end();
+      if (proc.stdin) {
+        proc.stdin.write(prompt);
+        proc.stdin.end();
       }
 
       let stdout = '';
       let stderr = '';
 
-      this.process.stdout?.on('data', (data) => {
+      proc.stdout?.on('data', (data) => {
         stdout += data.toString();
       });
 
-      this.process.stderr?.on('data', (data) => {
+      proc.stderr?.on('data', (data) => {
         stderr += data.toString();
-        log('debug', `Claude Code stderr: ${data.toString()}`);
+        log('warn', `Claude Code stderr: ${data.toString()}`);
       });
 
-      this.process.on('close', (code) => {
-        this.process = null;
+      proc.on('close', (code) => {
+        clearTimeout(timeout);
+        this.activeProcesses.delete(proc);
+        if (settled) return;
+        settled = true;
 
         if (code !== 0) {
           log('error', `❌ Claude Code failed with code ${code}: ${stderr}`);
@@ -354,7 +374,11 @@ Please respond to the user's message:
         resolve(response);
       });
 
-      this.process.on('error', (error) => {
+      proc.on('error', (error) => {
+        clearTimeout(timeout);
+        this.activeProcesses.delete(proc);
+        if (settled) return;
+        settled = true;
         log('error', `❌ Claude Code process error: ${error.message}`);
         reject(error);
       });
@@ -555,22 +579,42 @@ Please respond to the user's message:
 
       log('debug', `🤖 Executing Claude Code (streaming) with prompt length: ${prompt.length}`);
 
-      // Claude Code CLI 실행
-      this.process = spawn('claude', args, {
+      // Claude Code CLI 실행 (CLAUDECODE 환경변수 제거하여 중첩 세션 방지)
+      const env = { ...process.env };
+      delete env.CLAUDECODE;
+      delete env.CLAUDE_CODE_ENTRYPOINT;
+
+      let settled = false;
+      const proc = spawn('claude', args, {
         stdio: ['pipe', 'pipe', 'pipe'],
+        env,
       });
+      this.activeProcesses.add(proc);
+
+      // 2분 타임아웃
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          proc.kill();
+          this.activeProcesses.delete(proc);
+          const error = new Error('Claude Code timeout (120s)');
+          if (callbacks.onError) callbacks.onError(error);
+          reject(error);
+        }
+      }, 120000);
 
       // 프롬프트를 stdin으로 전달
-      if (this.process.stdin) {
-        this.process.stdin.write(prompt);
-        this.process.stdin.end();
+      if (proc.stdin) {
+        proc.stdin.write(prompt);
+        proc.stdin.end();
       }
 
       let fullOutput = '';
       let lastSnapshotLength = 0;
+      let stderrOutput = '';
 
       // stdout 스트리밍 처리
-      this.process.stdout?.on('data', (data) => {
+      proc.stdout?.on('data', (data) => {
         const chunk = data.toString();
         fullOutput += chunk;
 
@@ -582,16 +626,20 @@ Please respond to the user's message:
         }
       });
 
-      this.process.stderr?.on('data', (data) => {
-        log('debug', `Claude Code stderr: ${data.toString()}`);
+      proc.stderr?.on('data', (data) => {
+        stderrOutput += data.toString();
+        log('warn', `Claude Code stderr: ${data.toString()}`);
       });
 
-      this.process.on('close', (code) => {
-        this.process = null;
+      proc.on('close', (code) => {
+        clearTimeout(timeout);
+        this.activeProcesses.delete(proc);
+        if (settled) return;
+        settled = true;
 
         if (code !== 0) {
-          const error = new Error(`Claude Code failed with code ${code}`);
-          log('error', `❌ Claude Code failed with code ${code}`);
+          const error = new Error(`Claude Code failed with code ${code}: ${stderrOutput}`);
+          log('error', `❌ Claude Code failed with code ${code}: ${stderrOutput}`);
           if (callbacks.onError) {
             callbacks.onError(error);
           }
@@ -604,7 +652,11 @@ Please respond to the user's message:
         resolve(response);
       });
 
-      this.process.on('error', (error) => {
+      proc.on('error', (error) => {
+        clearTimeout(timeout);
+        this.activeProcesses.delete(proc);
+        if (settled) return;
+        settled = true;
         log('error', `❌ Claude Code process error: ${error.message}`);
         if (callbacks.onError) {
           callbacks.onError(error);
@@ -639,10 +691,10 @@ Please respond to the user's message:
    * Agent 종료
    */
   close(): void {
-    if (this.process) {
-      this.process.kill();
-      this.process = null;
+    for (const proc of this.activeProcesses) {
+      proc.kill();
     }
+    this.activeProcesses.clear();
     log('info', '👋 Claude Code Agent closed');
   }
 }

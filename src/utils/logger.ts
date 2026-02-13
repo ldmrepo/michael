@@ -41,6 +41,22 @@ class Logger {
     return LOG_LEVELS[level] >= LOG_LEVELS[this.minLevel];
   }
 
+  private rotateIfNeeded(): void {
+    try {
+      const stats = fs.statSync(this.logFile);
+      if (stats.size > 10 * 1024 * 1024) { // 10MB
+        const backupFile = this.logFile + '.1';
+        // Remove old backup if exists
+        if (fs.existsSync(backupFile)) {
+          fs.unlinkSync(backupFile);
+        }
+        fs.renameSync(this.logFile, backupFile);
+      }
+    } catch {
+      // File doesn't exist yet or other error - ignore
+    }
+  }
+
   private formatMessage(level: LogLevel, message: string): string {
     const timestamp = new Date().toISOString();
     return `[${timestamp}] [${level.toUpperCase()}] ${message}`;
@@ -55,8 +71,9 @@ class Logger {
     const coloredMessage = `${COLORS[level]}${formattedMessage}${RESET}`;
     console.log(coloredMessage);
 
-    // File output
+    // File output (with rotation)
     try {
+      this.rotateIfNeeded();
       fs.appendFileSync(this.logFile, formattedMessage + '\n');
     } catch (error) {
       console.error('Failed to write log to file:', error);

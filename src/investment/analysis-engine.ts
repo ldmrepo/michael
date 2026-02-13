@@ -111,9 +111,25 @@ export class AnalysisEngine {
     const prompt = this.buildAnalysisPrompt(data, type);
 
     return new Promise((resolve, reject) => {
+      // CLAUDECODE 환경변수 제거하여 중첩 세션 방지
+      const env = { ...process.env };
+      delete env.CLAUDECODE;
+      delete env.CLAUDE_CODE_ENTRYPOINT;
+
+      let settled = false;
       const proc = spawn('claude', ['-p', '--model', 'sonnet'], {
         stdio: ['pipe', 'pipe', 'pipe'],
+        env,
       });
+
+      // 2분 타임아웃
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          proc.kill();
+          reject(new Error('Claude CLI timeout (120s)'));
+        }
+      }, 120000);
 
       let stdout = '';
       let stderr = '';
@@ -122,6 +138,10 @@ export class AnalysisEngine {
       proc.stderr?.on('data', (chunk) => { stderr += chunk.toString(); });
 
       proc.on('close', (code) => {
+        clearTimeout(timeout);
+        if (settled) return;
+        settled = true;
+
         if (code !== 0) {
           reject(new Error(`Claude CLI exited with code ${code}: ${stderr}`));
           return;
@@ -136,6 +156,9 @@ export class AnalysisEngine {
       });
 
       proc.on('error', (err) => {
+        clearTimeout(timeout);
+        if (settled) return;
+        settled = true;
         reject(new Error(`Claude CLI spawn error: ${err.message}`));
       });
 
@@ -144,12 +167,6 @@ export class AnalysisEngine {
         proc.stdin.write(prompt);
         proc.stdin.end();
       }
-
-      // Timeout after 60 seconds
-      setTimeout(() => {
-        proc.kill();
-        reject(new Error('Claude CLI timeout (60s)'));
-      }, 60000);
     });
   }
 

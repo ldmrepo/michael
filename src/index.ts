@@ -93,12 +93,17 @@ class Michael {
       // Telegram 시작 (토큰이 있는 경우에만)
       const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
       if (telegramToken) {
-        const gatewayUrl = `ws://${process.env.GATEWAY_HOST || '127.0.0.1'}:${process.env.GATEWAY_PORT || '18789'}`;
-        this.telegram = new TelegramChannel(telegramToken, gatewayUrl);
-        // WebAppManager 연결
-        this.telegram.setWebAppManager(this.httpServer.getWebAppManager());
-        await this.telegram.start();
-        log('info', '✅ Telegram channel connected');
+        try {
+          const gatewayUrl = `ws://${process.env.GATEWAY_HOST || '127.0.0.1'}:${process.env.GATEWAY_PORT || '18789'}`;
+          this.telegram = new TelegramChannel(telegramToken, gatewayUrl);
+          // WebAppManager 연결
+          this.telegram.setWebAppManager(this.httpServer.getWebAppManager());
+          await this.telegram.start();
+          log('info', '✅ Telegram channel connected');
+        } catch (error) {
+          log('warn', `⚠️ Telegram failed to start (continuing without it): ${error}`);
+          this.telegram = null;
+        }
       } else {
         log('warn', '⚠️ TELEGRAM_BOT_TOKEN not set, Telegram disabled');
       }
@@ -119,7 +124,7 @@ class Michael {
             this.memory.getDb(),
             this.gateway,
           );
-          this.investment.start();
+          await this.investment.start();
           log('info', '✅ Investment service started');
         } catch (error) {
           log('warn', `⚠️ Investment service failed to start: ${error}`);
@@ -135,7 +140,7 @@ class Michael {
             this.memory.getDb(),
             this.gateway,
           );
-          this.predictionMarket.start();
+          await this.predictionMarket.start();
           log('info', '✅ Prediction Market service started');
         } catch (error) {
           log('warn', `⚠️ Prediction Market service failed to start: ${error}`);
@@ -170,23 +175,19 @@ class Michael {
   async stop(): Promise<void> {
     log('info', '👋 Stopping Michael...');
 
-    if (this.financeAgent) {
-      await this.financeAgent.stop();
-    }
-    if (this.investment) {
-      this.investment.stop();
-    }
-    if (this.predictionMarket) {
-      this.predictionMarket.stop();
-    }
-    this.scheduler.stop();
-    if (this.telegram) {
-      await this.telegram.stop();
-    }
-    await this.httpServer.stop();
-    await this.gateway.close();
-    this.agent.close();
-    await this.memory.close(); // async for vector search cleanup
+    const safeStop = async (name: string, fn: () => void | Promise<void>) => {
+      try { await fn(); } catch (e) { log('error', `❌ Failed to stop ${name}: ${e}`); }
+    };
+
+    await safeStop('FinanceAgent', async () => { if (this.financeAgent) await this.financeAgent.stop(); });
+    await safeStop('Investment', () => { if (this.investment) this.investment.stop(); });
+    await safeStop('PredictionMarket', () => { if (this.predictionMarket) this.predictionMarket.stop(); });
+    await safeStop('Scheduler', () => this.scheduler.stop());
+    await safeStop('Telegram', async () => { if (this.telegram) await this.telegram.stop(); });
+    await safeStop('HttpServer', () => this.httpServer.stop());
+    await safeStop('Gateway', () => this.gateway.close());
+    await safeStop('Agent', () => this.agent.close());
+    await safeStop('Memory', () => this.memory.close());
 
     log('info', '✅ Michael stopped');
   }
