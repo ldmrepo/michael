@@ -262,9 +262,196 @@ decisions:
 
 ---
 
-## 전문가 팀 — 에이전트별 스킬 & 도구
+## 에이전트의 4요소
 
-> 각 에이전트는 **자기 영역의 스킬과 도구만** 가진다.
+> 모든 에이전트는 4가지 구성 요소를 가진다.
+> 하나라도 빠지면 제대로 동작하지 않는다.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      에이전트 (Agent)                         │
+│                                                             │
+│  ┌──────────────┐  ┌──────────────┐                         │
+│  │ 1. 역할      │  │ 2. 지침      │                         │
+│  │   (Role)     │  │ (Instructions)│                         │
+│  │              │  │              │                         │
+│  │ "나는 누구"   │  │ "어떻게 해야  │                         │
+│  │              │  │  하는가"     │                         │
+│  └──────────────┘  └──────────────┘                         │
+│  ┌──────────────┐  ┌──────────────┐                         │
+│  │ 3. 도구      │  │ 4. 지식      │                         │
+│  │   (Tools)    │  │ (Knowledge)  │                         │
+│  │              │  │              │                         │
+│  │ "무엇을 쓸   │  │ "무엇을 알고  │                         │
+│  │  수 있는가"  │  │  있는가"     │                         │
+│  └──────────────┘  └──────────────┘                         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**4요소의 역할:**
+
+| 구성 요소 | 성격 | 변경 빈도 | 예시 |
+|----------|------|----------|------|
+| **역할 (Role)** | 정체성, 책임 범위 | 불변 | "나는 기술 분석가다" |
+| **지침 (Instructions)** | 규칙, 절차, 제약 조건 | 거의 안 바뀜 | "RSI 30 이하면 매수 신호로 보고하라" |
+| **도구 (Tools)** | API, 스크립트, 함수 | 가끔 추가/교체 | `analyze.py`, Binance kline API |
+| **지식 (Knowledge)** | 사실, 경험, 인사이트 | 계속 축적/갱신 | "2026-02 BTC RSI 28에서 72시간 내 반등" |
+
+- 도구 없는 에이전트 → 말만 하고 행동 못 함
+- 지침 없는 에이전트 → 도구를 가지고도 뭘 해야 할지 모름
+- 지식 없는 에이전트 → 매번 처음부터 웹 검색, 같은 실수 반복
+- 역할 없는 에이전트 → 다른 에이전트와 경계가 흐려짐
+
+---
+
+## 에이전트 지식 시스템 (Knowledge System)
+
+> 에이전트가 "똑똑하지만 엉뚱한" 답변을 하는 이유는 지능이 부족해서가 아니라,
+> **신뢰할 수 있는 정보를 선별하지 못하는 '맥락의 부재'** 때문이다.
+> — nlm.md
+
+### 원칙: Pull 방식의 구조화된 지식
+
+에이전트에게 원시 데이터를 밀어넣는(Push) 방식이 아니라,
+에이전트가 관리된 지식 저장소에서 정제된 정보를 끌어오는(Pull) **결정론적 검색** 구조를 사용한다.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                                                         │
+│  기존 방식 (Push)             지식 시스템 (Pull)          │
+│  ─────────────               ──────────────             │
+│                                                         │
+│  웹 검색 결과 덤프            정제된 SSoT에서 쿼리        │
+│  → 노이즈 범벅               → 검증된 사실만 반환         │
+│  → 맥락 비대화               → 토큰 효율 극대화           │
+│  → 같은 실수 반복             → 경험이 축적됨              │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 에이전트별 지식 구조
+
+각 에이전트는 자기 영역의 **전용 지식 저장소(Notebook)**를 가진다.
+
+```
+knowledge/{agent-name}/
+├── mindmap.json          # 지식 지도 — 내가 뭘 알고 있는지 구조화
+├── sources/              # 정제된 참조 자료 (SSoT)
+│   ├── binance-api.md    #   공식 문서, 검증된 가이드
+│   ├── rsi-patterns.md   #   분석 방법론
+│   └── ...               #   도메인별 핵심 자료
+└── insights/             # 축적된 인사이트 (학습)
+    ├── 2026-02-15.md     #   "BTC RSI 28 → 72시간 내 반등 확률 높음"
+    ├── 2026-02-14.md     #   "Fear 28 진입 시 평균 +12% 30일 수익"
+    └── ...               #   패턴, 실수, 교훈
+```
+
+**각 요소의 역할:**
+
+| 요소 | 역할 | 갱신 주체 | 갱신 빈도 |
+|------|------|----------|----------|
+| **mindmap.json** | 지식의 전체 지도. 에이전트가 자기가 뭘 아는지 한눈에 파악 | 에이전트 자신 | 지식 추가/변경 시 |
+| **sources/** | 검증된 참조 자료. 웹 검색 대신 여기서 먼저 찾는다 | 사용자 또는 에이전트 | 가끔 (자료 업데이트 시) |
+| **insights/** | 작업하면서 발견한 패턴, 경험, 교훈. 이것이 쌓여야 똑똑해진다 | 에이전트 자신 | 매 작업 후 |
+
+### 지식 쿼리 흐름
+
+에이전트가 판단을 내리기 전, 항상 자기 지식을 먼저 검색한다:
+
+```
+판단 요청 수신
+    │
+    ▼
+① 마인드맵 참조 — "이 주제에 대해 내가 아는 게 있나?"
+    │
+    ├─ 있다 → ② sources/ 또는 insights/ 에서 관련 지식 Pull
+    │              │
+    │              ▼
+    │         정제된 지식을 맥락에 포함하여 판단
+    │
+    └─ 없다 → ③ 외부 도구(API, 웹 검색) 사용
+                   │
+                   ▼
+              결과를 insights/ 에 저장 (학습)
+              mindmap.json 갱신
+```
+
+### 기본 백엔드: NLM (NotebookLM)
+
+지식 시스템의 기본 구현은 **NLM(NotebookLM)**을 사용한다.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│              Knowledge Interface (추상)                   │
+│                                                         │
+│  query(question) → answer        # 지식 검색             │
+│  store(insight)  → void          # 인사이트 저장          │
+│  getMindmap()    → structure     # 지식 지도 반환         │
+│  addSource(doc)  → void          # 참조 자료 추가         │
+│                                                         │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  구현 A (기본): NLM                                      │
+│  ─────────────────                                      │
+│  • Google NotebookLM + CLI (nlmo)                       │
+│  • Gemini 기반 종합/정제                                  │
+│  • 멀티모달 지원 (텍스트, PDF, 오디오)                     │
+│  • 에이전트별 전용 Notebook ID                            │
+│                                                         │
+│  구현 B (대체): 로컬 벡터 DB                              │
+│  ─────────────────                                      │
+│  • SQLite + sqlite-vec (기존 memory-index.db 확장)       │
+│  • 로컬 임베딩 (node-llama-cpp)                          │
+│  • 오프라인 동작, 비용 없음                               │
+│                                                         │
+│  구현 C (대체): 기타                                     │
+│  ─────────────────                                      │
+│  • Obsidian, Notion, 커스텀 RAG 등                      │
+│  • 동일 인터페이스만 구현하면 교체 가능                     │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+**왜 NLM이 기본인가:**
+- Gemini가 원시 자료를 **종합·정제**하여 반환 → 노이즈 제거
+- CLI(`nlmo`)로 자동화 가능 → 에이전트가 직접 쿼리/업데이트
+- 에이전트별 독립 Notebook → 지식 영역 격리
+- 무료 사용 가능
+
+**왜 교체 가능해야 하는가:**
+- NLM 서비스 중단/변경 시 대응
+- 오프라인/에어갭 환경 지원
+- 비용 또는 지연시간 최적화
+- 인터페이스만 동일하면 백엔드는 자유롭게 교체
+
+### 지식과 다른 저장소의 관계
+
+```
+┌──────────┐  ┌──────────┐  ┌──────────────┐
+│ Memory   │  │ State    │  │ Knowledge    │
+│ (기억)   │  │ Store    │  │ (지식)        │
+│          │  │ (판단판)  │  │              │
+├──────────┤  ├──────────┤  ├──────────────┤
+│ 과거 대화 │  │ 현재 목표 │  │ 도메인 전문성  │
+│ 사용자   │  │ 포트폴리오│  │ 경험/패턴     │
+│ 정보     │  │ 판단 재료 │  │ 참조 자료     │
+│          │  │ 결정 일지 │  │              │
+├──────────┤  ├──────────┤  ├──────────────┤
+│ "지난 달  │  │ "지금 BTC │  │ "RSI 28에서  │
+│  뭐라고  │  │  비중이   │  │  반등한 적이  │
+│  했더라?" │  │  몇 %지?" │  │  3번 있었다"  │
+├──────────┤  ├──────────┤  ├──────────────┤
+│ SQLite   │  │ YAML     │  │ NLM (기본)    │
+│ 전체 공유 │  │ 마이클    │  │ 에이전트별    │
+│          │  │ 중심     │  │ 독립 소유     │
+└──────────┘  └──────────┘  └──────────────┘
+```
+
+---
+
+## 전문가 팀 — 에이전트별 역할, 지침, 도구, 지식
+
+> 각 에이전트는 **자기 영역의 도구와 지식만** 가진다.
 > 다른 영역의 도구는 접근하지 않는다. 마이클만 전체를 본다.
 
 ```
@@ -275,6 +462,7 @@ decisions:
                       │     마이클       │  도구: Gateway, Memory,
                       │   (의사결정자)    │       Scheduler, Telegram,
                       │                 │       Calendar, Gmail
+                      │                 │  지식: 투자 전략, 의사결정 패턴
                       └────────┬────────┘
                                │
            ┌───────────────────┼───────────────────┐
@@ -291,7 +479,7 @@ decisions:
    │ • PM스캐너    │
    └───────────────┘
 
-   각 에이전트는 자기만의 스킬(SKILL.md)과 도구(*.py)를 보유
+   각 에이전트는 4요소를 보유: 역할 + 지침 + 도구 + 지식
    마이클은 에이전트에게 "지시"하고 "보고"를 받는다
    에이전트끼리 직접 소통하지 않는다 (모두 마이클을 거친다)
 ```
@@ -302,75 +490,63 @@ decisions:
 
 #### 시장 데이터 수집가 (Market Data Collector)
 
-역할: 크립토/전통 시장 가격·거래량·파생상품 데이터 수집
-
 | 구분 | 내용 |
 |------|------|
-| **스킬** | `finance`, `crypto-investment-sources` |
+| **역할** | 크립토/전통 시장 가격·거래량·파생상품 데이터 수집 |
+| **지침** | 5분 간격 가격 폴링, 변동 1% 이상 시 즉시 보고, 출력 형식 `{ symbol, price, change_24h, volume, funding_rate, open_interest }` |
 | **도구** | `collect_market.py` (CoinGecko, Fear&Greed), `collect_binance_api.py` (펀딩레이트, OI), `fetch-stock.py` (yfinance) |
-| **API** | CoinGecko, Binance Public API, alternative.me, yfinance |
-| **출력** | `{ symbol, price, change_24h, volume, funding_rate, open_interest }` |
-| **주기** | 실시간(5분) ~ 4시간 |
+| **지식** | CoinGecko/Binance API 스펙, 거래소별 데이터 특성, 과거 수집 오류 패턴 |
+| **NLM** | `knowledge/market-data/` — API 문서, 데이터 이상 사례, 수집 최적화 인사이트 |
 
 #### 매크로 분석가 (Macro Analyst)
 
-역할: 거시경제 지표 수집 및 해석
-
 | 구분 | 내용 |
 |------|------|
-| **스킬** | `crypto-investment-sources` (매크로 섹션) |
+| **역할** | 거시경제 지표 수집 및 해석 |
+| **지침** | 일 2회(08:00, 20:00) FRED 데이터 수집, FOMC/CPI 일정 추적, 출력 형식 `{ fed_rate, dxy, cpi, unemployment, fed_probability }` |
 | **도구** | `collect_macro.py` (FRED 경제지표) |
-| **API** | FRED (Federal Reserve), CME FedWatch |
-| **출력** | `{ fed_rate, dxy, cpi, unemployment, fed_probability }` |
-| **주기** | 일 2회 (08:00, 20:00) |
+| **지식** | FRED API 시리즈 ID, 경제지표 해석 가이드, FOMC 결정 패턴, 과거 금리 사이클 |
+| **NLM** | `knowledge/macro/` — FRED 문서, 매크로 해석 프레임워크, 역사적 패턴 인사이트 |
 
 #### 뉴스 수집가 (News Collector)
 
-역할: 투자 관련 뉴스 수집 및 요약
-
 | 구분 | 내용 |
 |------|------|
-| **스킬** | `news` |
+| **역할** | 투자 관련 뉴스 수집 및 요약 |
+| **지침** | 2시간 간격, 중복 제거, sentiment 분류(positive/negative/neutral), 출력 형식 `{ headline, source, sentiment, relevance_score, summary }` |
 | **도구** | `collect_news.py` (NewsAPI), `fetch-news.sh` |
-| **API** | NewsAPI, 크립토 전문매체 RSS |
-| **출력** | `{ headline, source, sentiment, relevance_score, summary }` |
-| **주기** | 2시간 |
+| **지식** | 신뢰 소스 목록, 클릭베이트 필터링 패턴, 뉴스→가격 영향 사례 |
+| **NLM** | `knowledge/news/` — 매체 신뢰도 기준, sentiment 분석 가이드, 오보 사례 |
 
 #### 소셜 감시자 (Social Monitor)
 
-역할: X/Twitter 키워드 감시, 시장 심리 포착
-
 | 구분 | 내용 |
 |------|------|
-| **스킬** | `x` |
+| **역할** | X/Twitter 키워드 감시, 시장 심리 포착 |
+| **지침** | 마이클 요청 시 수행, 키 인플루언서 목록 유지, 출력 형식 `{ keyword, tweet_count, sentiment, key_accounts, trending }` |
 | **도구** | Playwright 브라우저 자동화 (X 검색/조회) |
-| **API** | X via Playwright (인증 세션) |
-| **출력** | `{ keyword, tweet_count, sentiment, key_accounts, trending }` |
-| **주기** | 수시 (마이클 요청 시) |
+| **지식** | 주요 크립토 인플루언서 계정, 과거 소셜 시그널→가격 상관관계 |
+| **NLM** | `knowledge/social/` — 인플루언서 DB, 소셜 심리 지표 해석 가이드 |
 
 #### 온체인 분석가 (On-chain Analyst)
 
-역할: 기관 자금 흐름, 고래 이동, 옵션 데이터 수집
-
 | 구분 | 내용 |
 |------|------|
-| **스킬** | `binance-analytics`, `crypto-investment-sources` |
+| **역할** | 기관 자금 흐름, 고래 이동, 옵션 데이터 수집 |
+| **지침** | 일 1~2회, ETF 플로우/고래 이동/옵션 데이터 수집, 출력 형식 `{ etf_flow, whale_moves, iv, max_pain, tvl_ranking }` |
 | **도구** | `collect_etf_flows.py`, `collect_smart_money.py`, `collect_options.py`, `collect_defi.py` |
-| **API** | Binance Analytics (Playwright), DeFiLlama, Deribit |
-| **출력** | `{ etf_flow, whale_moves, iv, max_pain, tvl_ranking }` |
-| **주기** | 일 1~2회 |
+| **지식** | ETF 플로우 해석법, 고래 지갑 주소록, 옵션 Max Pain 의미, DeFi TVL 트렌드 |
+| **NLM** | `knowledge/onchain/` — 온체인 지표 해석 가이드, 고래 패턴 사례 |
 
 #### PM 스캐너 (Prediction Market Scanner)
 
-역할: Polymarket 마켓 탐색, 기회 발견
-
 | 구분 | 내용 |
 |------|------|
-| **스킬** | `prediction-market` |
+| **역할** | Polymarket 마켓 탐색, 기회 발견 |
+| **지침** | 15분(가격)/4시간(신규)/6시간(고확률), 차익거래 스프레드 3%+ 플래그, 출력 형식 `{ market_id, question, yes_price, volume, edge, arb_spread }` |
 | **도구** | `scan_markets.py`, `monitor_prices.py`, `monitor_arbitrage.py` |
-| **API** | Polymarket Gamma API, CLOB API |
-| **출력** | `{ market_id, question, yes_price, volume, edge, arb_spread }` |
-| **주기** | 15분(가격) / 4시간(신규) / 6시간(고확률) |
+| **지식** | Gamma API 사용법(slug 조회 필수!), CLOB 오더북 구조, 과거 정산 패턴 |
+| **NLM** | `knowledge/pm-scanner/` — Polymarket API 문서, 마켓 유형별 특성, 정산 사례 |
 
 ---
 
@@ -378,52 +554,44 @@ decisions:
 
 #### 기술 분석가 (Technical Analyst)
 
-역할: 차트 패턴, 기술적 지표 분석
-
 | 구분 | 내용 |
 |------|------|
-| **스킬** | `binance-analytics`, `investment` |
+| **역할** | 차트 패턴, 기술적 지표 분석 |
+| **지침** | 시장데이터 수집가의 데이터 기반 분석, 신호 강도(confidence) 필수 포함, 출력 형식 `{ rsi, ma_trend, support, resistance, pattern, signal, confidence }` |
 | **도구** | `analyze.py` (Claude CLI 기반 AI 분석), Binance kline 데이터 |
-| **입력** | 시장 데이터 수집가의 가격/거래량 데이터 |
-| **출력** | `{ rsi, ma_trend, support, resistance, pattern, signal }` |
-| **판단** | "BTC 일봉 RSI 28, 200MA 지지 근접 → 매수 신호" |
+| **지식** | RSI/MA/볼린저밴드 해석법, 차트 패턴 카탈로그, 과거 신호 적중률 |
+| **NLM** | `knowledge/technical/` — 기술분석 방법론, 과거 신호→결과 인사이트 |
 
 #### 리스크 관리자 (Risk Manager)
 
-역할: 포트폴리오 위험 평가, 경고 발생
-
 | 구분 | 내용 |
 |------|------|
-| **스킬** | `investment` (리스크 섹션), `binance-futures-advanced` |
+| **역할** | 포트폴리오 위험 평가, 경고 발생 |
+| **지침** | mandate.yaml 대조 필수, 위반 시 거래 차단 플래그, 출력 형식 `{ alert_type, severity, position, distance_to_liquidation, recommendation }` |
 | **도구** | `monitor_risk.py`, `monitor_prices.py` |
-| **입력** | 포트폴리오 현황 + 현재 가격 |
-| **출력** | `{ alert_type, severity, position, distance_to_liquidation, recommendation }` |
-| **판단** | "ETH Long 청산가 -8%, severity=HIGH → 포지션 축소 권고" |
+| **지식** | 리스크 관리 프레임워크, 포지션 사이징 공식, 과거 손실 사례 분석 |
+| **NLM** | `knowledge/risk/` — 리스크 관리 원칙, 청산 사례, 드로다운 패턴 |
 | **권한** | ⚠️ **거부권** — 리스크 한도 초과 시 마이클에게 거래 차단 요청 |
 
 #### PM 확률 분석가 (PM Probability Analyst)
 
-역할: 예측시장의 실제 확률 추정, 엣지 계산
-
 | 구분 | 내용 |
 |------|------|
-| **스킬** | `prediction-market` |
+| **역할** | 예측시장의 실제 확률 추정, 엣지 계산 |
+| **지침** | PM 스캐너 데이터 + 뉴스/매크로 맥락으로 추정, Kelly 기준 필수, 출력 형식 `{ market, market_price, estimated_prob, edge, kelly_fraction, confidence }` |
 | **도구** | `estimate_true_probability.py`, `calculate_kelly.py`, `portfolio_intelligence.py` |
-| **입력** | PM 스캐너의 마켓 데이터 + 뉴스/매크로 컨텍스트 |
-| **출력** | `{ market, market_price, estimated_prob, edge, kelly_fraction, confidence }` |
-| **판단** | "시장 92% vs 추정 97% → 엣지 5%, 켈리 12%" |
+| **지식** | Kelly Criterion 공식, 확률 추정 방법론, 마켓 유형별 편향 패턴 |
+| **NLM** | `knowledge/pm-analysis/` — 확률론 가이드, 과거 추정 vs 실제 결과 인사이트 |
 
 #### 포트폴리오 분석가 (Portfolio Analyst)
 
-역할: 전체 자산 현황 파악, 배분 상태 평가
-
 | 구분 | 내용 |
 |------|------|
-| **스킬** | `investment`, `prediction-market` |
+| **역할** | 전체 자산 현황 파악, 배분 상태 평가 |
+| **지침** | Binance+PM+현금 통합 NAV, 목표 배분 대비 편차, 출력 형식 `{ total_nav, allocation, deviation_from_target, pnl }` |
 | **도구** | `sync_balance.py`, `snapshot_nav.py`, `check_portfolio.py`, `show_portfolio_detailed.py`, `track_performance.py` |
-| **입력** | Binance 잔고 + PM 포지션 + 현금 |
-| **출력** | `{ total_nav, allocation: {binance_spot, futures, pm, cash}, deviation_from_target, pnl }` |
-| **판단** | "BTC 비중 45% → 목표 35% 초과, PM 비중 25% → 목표 30% 미달" |
+| **지식** | 자산배분 이론, 리밸런싱 기준, 과거 NAV 추이 패턴 |
+| **NLM** | `knowledge/portfolio/` — 배분 전략 가이드, 성과 분석 인사이트 |
 
 ---
 
@@ -431,64 +599,55 @@ decisions:
 
 #### Binance 트레이더 (Binance Trader)
 
-역할: Binance Spot/Futures 주문 실행
-
 | 구분 | 내용 |
 |------|------|
-| **스킬** | `investment`, `binance-futures-advanced`, `binance-trading-bots` |
+| **역할** | Binance Spot/Futures 주문 실행 |
+| **지침** | 마이클 지시 + 사용자 승인 후에만 실행, 주문 전 잔고 확인 필수, 슬리피지 0.5% 초과 시 보고 |
 | **도구** | `execute_order.py`, `binance_client.py`, `rebalance_futures.py` |
-| **API** | Binance API (인증, 주문 권한) |
-| **실행 가능** | 시장가/지정가 매수·매도, TP/SL 설정, 레버리지 조정 |
-| **권한** | 마이클의 지시 + 사용자 승인 후에만 실행 |
+| **지식** | Binance API 주문 유형, 수수료 구조, 슬리피지 최소화 기법, 과거 주문 실패 사례 |
+| **NLM** | `knowledge/binance-exec/` — Binance API 문서, 주문 실행 최적화 인사이트 |
 
 #### PM 트레이더 (PM Trader)
 
-역할: Polymarket CLOB에서 포지션 매수/매도
-
 | 구분 | 내용 |
 |------|------|
-| **스킬** | `prediction-market` |
+| **역할** | Polymarket CLOB에서 포지션 매수/매도 |
+| **지침** | 마이클 지시 + 사용자 승인 후에만 실행, POLY_PROXY 서명 사용, best ask+$0.01로 즉시 체결 |
 | **도구** | `polymarket_client.py`, `execute_rebalance_pm.py`, `sell_positions.py`, `sell_risk_positions.py`, `wallet_utils.py` |
-| **API** | Polymarket CLOB API (EOA 서명, Proxy Wallet) |
-| **실행 가능** | YES/NO 매수·매도, 포지션 청산, USDC.e 관리 |
-| **권한** | 마이클의 지시 + 사용자 승인 후에만 실행 |
+| **지식** | CLOB 오더북 구조, USDC.e 관리, Proxy Wallet 아키텍처, 과거 체결 패턴 |
+| **NLM** | `knowledge/pm-exec/` — Polymarket CLOB 문서, 체결 최적화 인사이트 |
 
 #### DCA 봇 (DCA Bot)
 
-역할: 정기적 자동 매수 실행
-
 | 구분 | 내용 |
 |------|------|
-| **스킬** | `investment`, `binance-trading-bots` |
+| **역할** | 정기적 자동 매수 실행 |
+| **지침** | 사전 승인된 규칙 내 자율 실행(L4), 금액/주기/종목 mandate 준수 |
 | **도구** | `execute_dca.py` |
-| **실행 가능** | 사전 설정된 금액·주기·종목으로 자동 매수 |
-| **권한** | 사용자가 사전 승인한 규칙 내에서 자율 실행 (L4) |
+| **지식** | DCA 전략 효과 데이터, 최적 매수 시점 패턴 |
+| **NLM** | `knowledge/dca/` — DCA 전략 가이드, 과거 DCA 성과 인사이트 |
 
 #### 리밸런서 (Rebalancer)
 
-역할: 목표 자산배분 비율 복원
-
 | 구분 | 내용 |
 |------|------|
-| **스킬** | `investment`, `prediction-market` |
+| **역할** | 목표 자산배분 비율 복원 |
+| **지침** | 마이클 지시 + 사용자 승인 후에만 실행, 편차 5%+ 초과 시에만 트리거, 크로스 플랫폼 실행 순서 준수 |
 | **도구** | `execute_rebalance.py`, `cross_asset_rebalancer.py`, `rebalance_engine.py` |
-| **실행 가능** | 초과 자산 매도 → 부족 자산 매수 (크로스 플랫폼) |
-| **권한** | 마이클의 지시 + 사용자 승인 후에만 실행 |
+| **지식** | 리밸런싱 전략, 거래 비용 최소화, 크로스 플랫폼 이체 절차 |
+| **NLM** | `knowledge/rebalancer/` — 리밸런싱 방법론, 과거 리밸런싱 결과 인사이트 |
 
 ---
 
-### 인프라 지원 (마이클 자체 도구)
+### 인프라 지원 (마이클 자체)
 
-마이클(의사결정자)이 팀 운영을 위해 직접 사용하는 도구:
+마이클(의사결정자)이 팀 운영을 위해 직접 사용:
 
-| 도구 | 용도 |
+| 구분 | 내용 |
 |------|------|
-| **Gateway** | 전문가(에이전트)와의 메시지 라우팅 |
-| **Memory** | 목표, 거래 기록, 판단 근거 저장 |
-| **Scheduler** | 전문가 호출 스케줄 관리 (cron) |
-| **Telegram** | 사용자와 소통 (보고, 승인 요청) |
-| **Calendar** | 투자 일정 관리 (정산일, FOMC, CPI 발표) |
-| **Gmail** | 리포트 발송, 거래소 알림 수신 |
+| **도구** | Gateway, Memory, Scheduler, Telegram, Calendar, Gmail |
+| **지식** | 투자 의사결정 프레임워크, 팀 운영 패턴, 과거 판단 리뷰 |
+| **NLM** | `knowledge/michael/` — 의사결정 원칙, 과거 좋은 판단/나쁜 판단 인사이트 |
 
 ---
 
