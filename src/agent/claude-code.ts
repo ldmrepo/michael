@@ -329,15 +329,15 @@ Please respond to the user's message:
       });
       this.activeProcesses.add(proc);
 
-      // 2분 타임아웃
+      // 30분 타임아웃 (스킬 실행 등 장시간 작업 대응)
       const timeout = setTimeout(() => {
         if (!settled) {
           settled = true;
           proc.kill();
           this.activeProcesses.delete(proc);
-          reject(new Error('Claude Code timeout (120s)'));
+          reject(new Error('Claude Code timeout (1800s)'));
         }
-      }, 120000);
+      }, 1800000);
 
       // 프롬프트를 stdin으로 전달
       if (proc.stdin) {
@@ -591,17 +591,17 @@ Please respond to the user's message:
       });
       this.activeProcesses.add(proc);
 
-      // 2분 타임아웃
+      // 30분 타임아웃 (스킬 실행 등 장시간 작업 대응)
       const timeout = setTimeout(() => {
         if (!settled) {
           settled = true;
           proc.kill();
           this.activeProcesses.delete(proc);
-          const error = new Error('Claude Code timeout (120s)');
+          const error = new Error('Claude Code timeout (1800s)');
           if (callbacks.onError) callbacks.onError(error);
           reject(error);
         }
-      }, 120000);
+      }, 1800000);
 
       // 프롬프트를 stdin으로 전달
       if (proc.stdin) {

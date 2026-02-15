@@ -953,6 +953,362 @@ python scripts/execute_rebalance_pm.py --session-id <id> --force
 
 ---
 
+## 눈뭉치(Snowball) PM 트레이더 전략
+
+> 목표: $1,228 → $10,000 (7개월, 2026-02~07)
+> 핵심: **자본 회전 속도** × **복리 효과** × **리스크 통제**
+
+### 복리 성장 로드맵
+
+```
+월간 목표 수익률: 30~40%
+  $1,228 (2월) → $1,600 (3월) → $2,100 (4월) → $2,800 (5월)
+  → $3,700 (6월) → $5,000 (7월) → $6,500 (8월, 초과달성 시)
+
+핵심 엔진:
+  PM 채권형(90%+) 정산 → 원금+이익 재투자 → 복리
+  Binance 선물 수익 → PM 추가 입금 → 규모 확대
+```
+
+### 자본 회전 최적화 (Capital Turnover)
+
+눈뭉치의 핵심은 **자본이 쉬지 않는 것**이다. 같은 $100이라도 1개월 동안 묶이면 ROI 10%지만, 2주짜리 3번 회전하면 복리로 15.7%가 된다.
+
+| 전략 | 회전 기간 | 연환산 ROI | 자본 효율 |
+|------|-----------|-----------|----------|
+| 장기 채권형 (3개월) | 90일 | 40~50% | 낮음 |
+| **중기 채권형 (2~4주)** | 14~28일 | **60~120%** | **높음** |
+| 단기 채권형 (1~2주) | 7~14일 | 80~200% | 매우 높음 |
+| 이벤트 트레이딩 (<1주) | 1~7일 | 100~300%+ | 최고 (리스크도 높음) |
+
+**최적 배분 (눈뭉치 전략):**
+```
+├── 단기 채권형 (1~2주): 30% → 빠른 회전, 안정 수익
+├── 중기 채권형 (2~4주): 40% → 핵심 수익원
+├── 이벤트 트레이딩 (<1주): 15% → 고수익 기회
+└── 현금 대기: 15% → 긴급 기회 + 유동성
+```
+
+### 채권형(Bond) 로테이션 전략
+
+**검증된 최고 전략**: 95¢+ NO 토큰을 단기 정산 마켓에서 반복 매수
+
+```
+[정산일 1주 이내 마켓 스캔]
+  → 95~97¢ NO 토큰 발견 (ROI 3~5%)
+  → $200 투자 → 1주 후 $206~210 회수
+  → 즉시 다음 마켓에 재투자
+  → 월 4회 회전 × 4% = 월 17% 복리
+```
+
+**마켓 선별 기준 (Bond Scanner):**
+| 조건 | 이유 |
+|------|------|
+| NO 가격 ≥ $0.93 | 최소 7% 확률의 안전마진 |
+| 정산까지 ≤ 21일 | 자본 회전 속도 확보 |
+| 유동성 ≥ $30K | 슬리피지 없이 $200+ 진입 가능 |
+| 24h 볼륨 ≥ $5K | 활성 시장 (exit 가능) |
+| 카테고리 중복 ≤ 2 | 상관관계 리스크 분산 |
+
+**자동 스캔 쿼리 (Gamma API):**
+```python
+# 고확률 채권형 마켓 자동 탐색
+markets = client.get_markets(active=True, limit=100)
+bonds = []
+for m in markets:
+    prices = json.loads(m.get("outcomePrices", "[]"))
+    if len(prices) >= 2:
+        no_price = float(prices[1])
+        end_date = datetime.fromisoformat(m["endDate"].replace("Z", "+00:00"))
+        days_left = (end_date - datetime.now(timezone.utc)).days
+        if 0.93 <= no_price <= 0.97 and 3 <= days_left <= 21:
+            bonds.append({
+                "slug": m["slug"],
+                "no_price": no_price,
+                "days": days_left,
+                "roi": (1 - no_price) / no_price,
+                "annualized": ((1 / no_price) ** (365 / days_left) - 1),
+                "liquidity": float(m.get("liquidityNum", 0)),
+            })
+# ROI/일수 비율로 정렬 (자본 효율 최적화)
+bonds.sort(key=lambda x: x["roi"] / max(x["days"], 1), reverse=True)
+```
+
+### 리스크 티어 시스템 (실전 검증)
+
+모든 PM 포지션을 4개 리스크 티어로 분류하고, 티어별로 관리:
+
+| 티어 | R:R 비율 | 조건 | 조치 |
+|------|---------|------|------|
+| **안전** (S) | 1:20+ | NO ≥ 95¢, 정산 < 30일 | HOLD, 정산까지 보유 |
+| **양호** (A) | 1:10~20 | NO 90~95¢, 정산 < 60일 | HOLD, 모니터링 |
+| **주의** (B) | 1:4~10 | NO 80~90¢ 또는 정산 > 60일 | 축소 검토 |
+| **위험** (C) | 1:4 미만 | NO < 80¢ 또는 역방향 이동 | **즉시 매도** |
+
+**R:R (Risk:Reward) 계산:**
+```
+NO 토큰 $0.94 매수 시:
+  이길 때 수익: $0.06 per share (6.4%)
+  질 때 손실: $0.94 per share (100%)
+  R:R = 0.94 / 0.06 = 1:15.7 → 안전 티어(S)
+
+NO 토큰 $0.84 매수 시:
+  이길 때 수익: $0.16 per share
+  질 때 손실: $0.84 per share
+  R:R = 0.84 / 0.16 = 1:5.25 → 주의 티어(B)
+```
+
+**티어 전환 트리거:**
+- 가격 5%+ 역방향 이동 → 한 단계 하향
+- 관련 뉴스/이벤트 발생 → 즉시 재평가
+- 정산일 7일 이내 → 한 단계 상향 (시간 가치)
+
+### 포지션 축소/탈출 프레임워크
+
+**3단계 리스크 축소 (Tier 1 → 2 → 3):**
+
+```
+Tier 1 (즉시 실행): 위험 티어(C) 포지션 전량 매도
+  → 회수금의 95%를 안전 티어(S) 마켓에 재투자
+  예: Khamenei NO (R:R 1:5.5) 매도 → BTC $55K NO (R:R 1:15) 매수
+
+Tier 2 (조건부 실행): 주의 티어(B) 포지션 50% 축소
+  → 축소금을 단기 채권형에 배분
+  트리거: 가격 3%+ 역방향 이동 OR 관련 뉴스 부정적
+
+Tier 3 (선제적 조정): 양호 티어(A)에서 정산일 먼 포지션 교체
+  → 같은 카테고리의 더 단기/고수익 마켓으로 로테이션
+  예: 6개월 후 정산 90¢ → 2주 후 정산 94¢ 교체
+```
+
+**매도 실행 전략 (검증됨):**
+```python
+# SELL NO tokens: buy_price - $0.01 for quick fill
+buy_price = float(client.get_price(token_id, "buy")["price"])
+sell_price = round(buy_price - 0.01, 2)
+result = client.create_limit_order(token_id, "SELL", sell_price, size)
+# 미체결 시 12초 대기 → 취소 → $0.01 더 낮춰서 재시도 (최대 3회)
+```
+
+### 조기 청산 규칙 (Early Exit)
+
+정산 전이라도 **수익 확정 + 자본 회전**을 위해 조기 매도하는 규칙:
+
+| 조건 | 조치 | 이유 |
+|------|------|------|
+| NO 가격 ≥ 98¢ (정산 7일+ 남음) | 매도 | 남은 2% ROI < 자본 재투자 수익 |
+| 포지션 수익 +10%+ (정산 30일+ 남음) | 50% 매도 | 수익 확정 + 잔여 무위험 보유 |
+| 시장 급변 (관련 뉴스) | 전량 매도 | 손절 또는 수익 확정 |
+| 더 높은 ROI 기회 발견 | 매도 후 교체 | 자본 효율 최적화 |
+
+**연환산 ROI 비교 공식:**
+```
+현재 포지션: (1/0.94)^(365/remaining_days) - 1
+새 기회:     (1/0.95)^(365/new_days) - 1
+
+예: 현재 94¢, 60일 남음 → 연환산 41%
+    새 기회 95¢, 10일 남음 → 연환산 214%
+    → 현재 포지션 매도, 새 기회로 교체
+```
+
+### PM-Futures 크로스 헤지
+
+PM 크립토 포지션과 Binance 선물을 연동한 헤지:
+
+**시나리오 1: PM에 BTC 하락 NO 보유 + Binance BTC LONG**
+```
+PM: "BTC drop below $60K" NO @ $0.93 (100 shares = $93 투자)
+  → BTC가 $60K 밑으로 떨어지면: $93 손실
+  → BTC가 $60K 위에 유지되면: +$7 수익
+
+Binance: BTC LONG 0.015 @ $69,840 (5x = $1,047 notional)
+  → BTC 10% 하락 시: -$104.7 손실
+
+헤지 효과: PM 손실 $93 + Binance 손실 $105 = $198 총 손실
+  → PM 없이 Binance만: $105 손실 (헤지가 오히려 리스크 증가!)
+
+올바른 헤지: "BTC drop below $60K" YES 매수 (PM 수익이 Binance 손실 상쇄)
+```
+
+**실전 헤지 규칙:**
+- BTC LONG 보유 시 → "BTC dip below $X" **YES** 소량 매수 (보험)
+- BTC SHORT 보유 시 → "BTC reach $Y" **YES** 소량 매수
+- 헤지 비용은 선물 포지션의 3~5% 이내로 제한
+- 선물 SL보다 PM 헤지가 비용 효율적인 경우에만 사용
+
+### Kelly Criterion 실전 적용
+
+**Half Kelly (권장) 사이징 계산기:**
+```python
+def half_kelly_size(win_prob: float, market_price: float, bankroll: float) -> float:
+    """Half Kelly optimal position size for PM bond strategy.
+
+    Args:
+        win_prob: Estimated true probability (e.g., 0.97 for 97% confidence)
+        market_price: Current NO token price (e.g., 0.94)
+        bankroll: Total available capital
+
+    Returns:
+        Optimal position size in USD
+    """
+    b = (1 - market_price) / market_price  # net odds
+    q = 1 - win_prob                        # loss probability
+    f_star = (b * win_prob - q) / b         # full Kelly fraction
+    f_half = f_star / 2                     # half Kelly (safer)
+
+    if f_half <= 0:
+        return 0  # no edge, don't bet
+
+    return round(bankroll * f_half, 2)
+
+# 예시: 97% 확신, 94¢ NO, 뱅크롤 $500
+# b = 0.06/0.94 = 0.0638
+# f* = (0.0638 × 0.97 - 0.03) / 0.0638 = 0.500
+# Half Kelly = 25% → $125 투자
+```
+
+**포지션별 Kelly 한도:**
+| 확신도 | 시장가 | Full Kelly | Half Kelly | 최대 한도 |
+|--------|--------|-----------|-----------|----------|
+| 97% | $0.94 | 50% | **25%** | 15% (분산 규칙) |
+| 95% | $0.93 | 34% | **17%** | 15% |
+| 93% | $0.91 | 22% | **11%** | 11% |
+| 90% | $0.88 | 15% | **7.5%** | 7.5% |
+
+> **규칙**: Half Kelly와 단일 포지션 최대 15% 중 낮은 값 적용
+
+### 정보 우위 확보 방법
+
+**Tier 1 (즉시 반영, 1분 이내):**
+- 정부 공식 발표 (금리 결정, 고용 통계)
+- 기업 실적 발표 (10-K, 10-Q)
+- 규제 결정 (SEC, CFTC 공시)
+- **전략**: 발표 즉시 포지션 진입/청산, 봇 자동화 필수
+
+**Tier 2 (분석 반영, 1시간~1일):**
+- 전문가 앙상블 예측 (Metaculus, Good Judgement)
+- 뉴스 감성 분석 (CryptoPanic, LunarCrush)
+- 소셜미디어 트렌드 (X/Twitter 볼륨 급증)
+- **전략**: 시장이 소화하기 전 포지션 조정
+
+**Tier 3 (도메인 지식, 수일~수주):**
+- 특정 분야 전문 지식 (크립토 온체인, 기후 모델)
+- 대안 데이터 (위성 이미지, 배송 추적)
+- 학술 연구 / 내부 정보 (합법적 범위)
+- **전략**: 시장이 인식하기 전 장기 포지션 구축
+
+### 센티먼트 분석 도구
+
+| 도구 | 용도 | 비용 | 연동 |
+|------|------|------|------|
+| CryptoPanic API | 크립토 뉴스 감성 | 무료 tier | REST API |
+| LunarCrush | 소셜 볼륨/감성 | 무료 tier | REST API |
+| Fear & Greed Index | 시장 심리 | 무료 | alternative.me |
+| Polymarket Activity | PM 마켓 볼륨 변동 | 무료 | Gamma API |
+| X/Twitter Search | 특정 이벤트 버즈 | 무료 (제한적) | Playwright |
+
+**센티먼트 → 포지션 조정 매핑:**
+```
+극도의 공포 (F&G < 20): 크립토 하락 NO 보유 유지, 추가 매수 검토
+공포 (20~40): 현상 유지
+중립 (40~60): 정상 운영
+탐욕 (60~80): 크립토 상승 NO 포지션 축소 검토
+극도의 탐욕 (80+): 크립토 NO 포지션 전량 점검, 헤지 강화
+```
+
+### 상관관계 트레이딩
+
+**같이 움직이는 마켓 쌍:**
+- BTC $X NO ↔ ETH $Y NO (크립토 전체 동반 하락)
+- Fed 동결 YES ↔ BTC 상승 YES (금리 동결 → 크립토 우호)
+- 지정학 긴장 YES ↔ 안전자산 상승 YES
+
+**규칙:**
+1. 상관 마켓에 동시 진입 금지 (집중 리스크)
+2. 같은 카테고리 포지션 합산 ≤ 40%
+3. 크립토 관련 PM 포지션 합계 ≤ Binance 선물 규모의 50%
+4. 역상관 마켓 페어링으로 자연 헤지 구축
+
+### 자동화 파이프라인 (구현 로드맵)
+
+**Phase 1 — Bond Scanner (즉시 구현 가능):**
+```bash
+# 매일 아침 실행 → Telegram 알림
+python scripts/scan_bonds.py --min-price 0.93 --max-days 21 --min-liquidity 30000
+# 출력: TOP 10 채권형 기회 (ROI/일수 정렬)
+```
+
+**Phase 2 — Position Monitor (주간 자동화):**
+```bash
+# 기존 포지션 상태 체크 + 리스크 티어 갱신
+python scripts/check_portfolio.py --tier-analysis
+# 출력: 티어별 포지션 분류 + 조치 권고
+```
+
+**Phase 3 — Auto Rotation (월간 목표):**
+```bash
+# 정산된 자금 자동 재투자 (Half Kelly 사이징)
+python scripts/auto_rotate.py --bankroll-pct 0.9 --max-positions 15
+# 정산 감지 → Bond Scanner → 최적 마켓 선택 → 자동 매수
+```
+
+**Phase 4 — Arbitrage Scanner (고급):**
+```bash
+# Polymarket vs Kalshi/Metaculus 가격 비교
+python scripts/arb_scanner.py --min-spread 3.0
+# 출력: 차익거래 기회 (스프레드 %, 자본 잠김 기간, 순수익)
+```
+
+### 실전 트레이딩 체크리스트 (일일)
+
+```
+매일 아침 (10분):
+  □ PM 포지션 리스크 티어 확인 — 위험(C) 있으면 즉시 처리
+  □ 정산 예정 마켓 확인 (7일 이내) — 결과 예측 갱신
+  □ 현금 잔고 확인 — 유휴 자금 있으면 Bond Scanner 실행
+  □ Binance SL/TP 상태 확인 — 이탈 없는지 체크
+
+매주 금요일 (30분):
+  □ 전체 포트폴리오 리뷰 — PM/Binance 비중 체크 (목표: 30/70)
+  □ 주간 수익률 계산 — 목표 대비 진행률 확인
+  □ 티어 재분류 — 시장 변동 반영
+  □ 정산된 자금 재투자 계획 수립
+  □ 크로스 헤지 적정성 검토
+
+월간 (1시간):
+  □ 전략 성과 분석 — 카테고리별 ROI, 예측 정확도
+  □ Kelly 파라미터 재보정 — 실제 승률 기반
+  □ 자본 배분 비율 조정 — 눈뭉치 성장 단계 반영
+  □ 새 도메인/전략 탐색
+```
+
+### 성장 단계별 전략 조정
+
+| 자본 규모 | 단계 | PM 비중 | 전략 특성 |
+|-----------|------|---------|----------|
+| $500~1,500 | 시드 | 30~40% | 안전 채권형 위주, 학습 |
+| $1,500~3,000 | 성장 | 25~35% | 채권형 + 정보 차익 병행 |
+| $3,000~5,000 | 확장 | 20~30% | 자동화 도입, 도메인 특화 |
+| $5,000~10,000 | 스케일 | 15~25% | 유동성 공급 추가, 차익거래 봇 |
+| $10,000+ | 성숙 | 10~20% | 포트폴리오 다각화, 수성 전략 |
+
+> 자본이 커질수록 PM 비중을 줄이고 Binance 선물/현물 비중을 늘려 리스크 분산
+
+### 실패 방지 패턴 (Common Mistakes)
+
+| # | 실수 | 올바른 접근 |
+|---|------|----------|
+| 1 | 저확률 YES에 "싸니까" 매수 | 5¢ YES = 95% 확률로 전액 손실. Longshot bias 인식 |
+| 2 | 한 이벤트에 집중 투자 | 단일 포지션 ≤ 15%, 카테고리 ≤ 40% |
+| 3 | 정산까지 무조건 보유 | 조기 청산 규칙 적용 (연환산 ROI 비교) |
+| 4 | 손실 포지션에 물타기 | NO 가격 하락 = 실제 확률 변화. 재평가 후 손절 검토 |
+| 5 | 상관 마켓 동시 진입 | BTC 관련 3개 + ETH 관련 2개 = 크립토 올인. 카테고리 분산 |
+| 6 | 유동성 없는 마켓 진입 | 유동성 < $10K → 매도 불가. 항상 exit 가능성 확인 |
+| 7 | MATCHED ≠ CONFIRMED 혼동 | MATCHED = 오프체인 매칭. 온체인 정산까지 대기 필요 |
+| 8 | 감정적 거래 (FOMO) | 기계적 기준 적용: Kelly 사이징 + 리스크 티어 |
+
+---
+
 ## References
 
 - **Polymarket API 기술 레퍼런스**: See [references/polymarket-api.md](references/polymarket-api.md) — API 아키텍처, 엔드포인트, 코드 예제

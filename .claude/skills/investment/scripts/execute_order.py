@@ -80,12 +80,22 @@ def main():
             if proposal.get("leverage"):
                 client.set_leverage(proposal["symbol"], proposal["leverage"])
 
+            # Detect Hedge Mode (dualSidePosition) for correct positionSide
+            position_side = "BOTH"
+            try:
+                mode = client.get_position_mode()
+                if mode.get("dualSidePosition"):
+                    position_side = "LONG" if proposal["side"] == "BUY" else "SHORT"
+            except Exception:
+                pass  # Fall back to BOTH (One-Way mode)
+
             result = client.create_futures_order(
                 symbol=proposal["symbol"],
                 side=proposal["side"],
                 order_type=proposal["order_type"],
                 quantity=proposal["quantity"],
                 price=proposal.get("price"),
+                position_side=position_side,
             )
 
         # Create SL/TP orders for futures positions
@@ -101,6 +111,7 @@ def main():
                         side=opposite_side,
                         stop_price=proposal["stop_loss"],
                         close_position=True,
+                        position_side=position_side,
                     )
                     sl_tp_results.append({"type": "stop_loss", "order": sl_result})
                 except Exception as e:
@@ -113,6 +124,7 @@ def main():
                         side=opposite_side,
                         stop_price=proposal["take_profit"],
                         close_position=True,
+                        position_side=position_side,
                     )
                     sl_tp_results.append({"type": "take_profit", "order": tp_result})
                 except Exception as e:

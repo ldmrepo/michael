@@ -173,6 +173,10 @@ class BinanceClient:
 
         return self._request("POST", f"{BINANCE_FUTURES_BASE}/fapi/v1/order", params, signed=True)
 
+    def get_position_mode(self) -> Dict[str, Any]:
+        """GET /fapi/v1/positionSide/dual — returns {dualSidePosition: true/false}"""
+        return self._request("GET", f"{BINANCE_FUTURES_BASE}/fapi/v1/positionSide/dual", signed=True)
+
     def set_leverage(self, symbol: str, leverage: int) -> Dict[str, Any]:
         """POST /fapi/v1/leverage"""
         return self._request("POST", f"{BINANCE_FUTURES_BASE}/fapi/v1/leverage", {
@@ -182,38 +186,60 @@ class BinanceClient:
     def create_stop_loss_order(self, symbol: str, side: str, stop_price: float,
                                quantity: float = None, close_position: bool = False,
                                position_side: str = "BOTH") -> Dict[str, Any]:
-        """Create a STOP_MARKET order for stop loss"""
+        """Create a STOP_MARKET conditional order for stop loss via Algo Order API.
+        Since 2025-12-09, conditional orders MUST use /fapi/v1/algoOrder."""
         params: Dict[str, Any] = {
             "symbol": symbol,
             "side": side,
             "type": "STOP_MARKET",
-            "stopPrice": f"{stop_price}",
+            "algoType": "CONDITIONAL",
+            "triggerPrice": f"{stop_price}",
             "positionSide": position_side,
+            "workingType": "MARK_PRICE",
         }
         if close_position:
             params["closePosition"] = "true"
         elif quantity:
             params["quantity"] = f"{quantity}"
-            params["reduceOnly"] = "true"
-        return self._request("POST", f"{BINANCE_FUTURES_BASE}/fapi/v1/order", params, signed=True)
+        return self._request("POST", f"{BINANCE_FUTURES_BASE}/fapi/v1/algoOrder", params, signed=True)
 
     def create_take_profit_order(self, symbol: str, side: str, stop_price: float,
                                   quantity: float = None, close_position: bool = False,
                                   position_side: str = "BOTH") -> Dict[str, Any]:
-        """Create a TAKE_PROFIT_MARKET order for take profit"""
+        """Create a TAKE_PROFIT_MARKET conditional order via Algo Order API.
+        Since 2025-12-09, conditional orders MUST use /fapi/v1/algoOrder."""
         params: Dict[str, Any] = {
             "symbol": symbol,
             "side": side,
             "type": "TAKE_PROFIT_MARKET",
-            "stopPrice": f"{stop_price}",
+            "algoType": "CONDITIONAL",
+            "triggerPrice": f"{stop_price}",
             "positionSide": position_side,
+            "workingType": "MARK_PRICE",
         }
         if close_position:
             params["closePosition"] = "true"
         elif quantity:
             params["quantity"] = f"{quantity}"
-            params["reduceOnly"] = "true"
-        return self._request("POST", f"{BINANCE_FUTURES_BASE}/fapi/v1/order", params, signed=True)
+        return self._request("POST", f"{BINANCE_FUTURES_BASE}/fapi/v1/algoOrder", params, signed=True)
+
+    def cancel_futures_order(self, symbol: str, order_id: int = None,
+                             client_order_id: str = None) -> Dict[str, Any]:
+        """DELETE /fapi/v1/order — Cancel a single futures order"""
+        params: Dict[str, Any] = {"symbol": symbol}
+        if order_id:
+            params["orderId"] = order_id
+        elif client_order_id:
+            params["origClientOrderId"] = client_order_id
+        else:
+            raise ValueError("orderId or clientOrderId required")
+        return self._request("DELETE", f"{BINANCE_FUTURES_BASE}/fapi/v1/order", params, signed=True)
+
+    def cancel_futures_algo_order(self, symbol: str, algo_id: int) -> Dict[str, Any]:
+        """DELETE /fapi/v1/algoOrder — Cancel an algo/conditional order"""
+        return self._request("DELETE", f"{BINANCE_FUTURES_BASE}/fapi/v1/algoOrder", {
+            "symbol": symbol, "algoId": algo_id
+        }, signed=True)
 
     def get_futures_open_orders(self, symbol: str = None) -> List[Dict[str, Any]]:
         """GET /fapi/v1/openOrders"""
