@@ -712,6 +712,110 @@ describe('KnowledgeSync.syncDecisionOutcome', () => {
   });
 });
 
+describe('KnowledgeSync.pruneOldNotes', () => {
+  const PRUNE_DIR = `test-prune-${process.pid}`;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mkdirSync(PRUNE_DIR, { recursive: true });
+    writeFileSync(join(PRUNE_DIR, 'nlm-notebooks.json'), JSON.stringify({
+      binance_trader: {
+        notebookId: 'bt-prune-id',
+        title: 'Michael: binance_trader',
+        createdAt: '',
+      },
+    }));
+  });
+
+  afterEach(() => {
+    rmSync(PRUNE_DIR, { recursive: true, force: true });
+  });
+
+  it('deletes notes older than maxAgeDays', async () => {
+    const oldDate = '2026-01-01';
+    const recentDate = new Date().toISOString().substring(0, 10);
+
+    // Mock noteList → one old, one recent
+    let callCount = 0;
+    mockedExecFile.mockImplementation((_cmd, args, _opts, callback) => {
+      const argsArr = args as string[];
+      if (argsArr[0] === 'note' && argsArr[1] === 'list') {
+        const notes = {
+          notes: [
+            { id: 'old-note', title: `[SUCCESS] ${oldDate}: BUY BTC` },
+            { id: 'recent-note', title: `[SUCCESS] ${recentDate}: SELL ETH` },
+          ],
+        };
+        (callback as any)(null, JSON.stringify(notes), '');
+      } else if (argsArr[0] === 'note' && argsArr[1] === 'delete') {
+        callCount++;
+        (callback as any)(null, 'Deleted', '');
+      }
+      return {} as any;
+    });
+
+    const nlm = new NlmClient('judgment-notebook');
+    const sync = new KnowledgeSync(nlm, PRUNE_DIR);
+    const km = new KnowledgeManager(PRUNE_DIR);
+
+    const deleted = await sync.pruneOldNotes(km, ['binance_trader'], 30);
+    expect(deleted).toBe(1);
+
+    // Only old-note should be deleted
+    const deleteCall = mockedExecFile.mock.calls.find(
+      c => (c[1] as string[])[0] === 'note' && (c[1] as string[])[1] === 'delete',
+    );
+    expect(deleteCall).toBeDefined();
+    expect((deleteCall![1] as string[])[3]).toBe('old-note');
+  });
+
+  it('returns 0 when no old notes', async () => {
+    const recentDate = new Date().toISOString().substring(0, 10);
+
+    mockedExecFile.mockImplementation((_cmd, args, _opts, callback) => {
+      const argsArr = args as string[];
+      if (argsArr[0] === 'note' && argsArr[1] === 'list') {
+        const notes = {
+          notes: [
+            { id: 'n1', title: `[SUCCESS] ${recentDate}: BUY BTC` },
+          ],
+        };
+        (callback as any)(null, JSON.stringify(notes), '');
+      }
+      return {} as any;
+    });
+
+    const nlm = new NlmClient('judgment-notebook');
+    const sync = new KnowledgeSync(nlm, PRUNE_DIR);
+    const km = new KnowledgeManager(PRUNE_DIR);
+
+    const deleted = await sync.pruneOldNotes(km, ['binance_trader'], 30);
+    expect(deleted).toBe(0);
+  });
+
+  it('skips notes without date in title', async () => {
+    mockedExecFile.mockImplementation((_cmd, args, _opts, callback) => {
+      const argsArr = args as string[];
+      if (argsArr[0] === 'note' && argsArr[1] === 'list') {
+        const notes = {
+          notes: [
+            { id: 'n1', title: 'No date in this title' },
+          ],
+        };
+        (callback as any)(null, JSON.stringify(notes), '');
+      }
+      return {} as any;
+    });
+
+    const nlm = new NlmClient('judgment-notebook');
+    const sync = new KnowledgeSync(nlm, PRUNE_DIR);
+    const km = new KnowledgeManager(PRUNE_DIR);
+
+    const deleted = await sync.pruneOldNotes(km, ['binance_trader'], 30);
+    expect(deleted).toBe(0);
+  });
+});
+
 describe('seedFoundationalKnowledge', () => {
   const SEED_DIR = `test-seed-${process.pid}`;
   const KNOWLEDGE_DIR = join(SEED_DIR, 'knowledge', 'market-data');

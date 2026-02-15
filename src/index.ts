@@ -241,6 +241,15 @@ class Michael {
               await initAgentKnowledge(km);
 
               const agents = km.listAgents();
+
+              // 매주 일요일 03:00 — 30일 이상 된 Note 자동 정리
+              const pruneTargets = ['binance_trader', 'pm_trader'];
+              cron.schedule('0 3 * * 0', () => {
+                knowledgeSync.pruneOldNotes(km, pruneTargets, 30).catch(e =>
+                  log('warn', `⚠️ NLM note pruning failed: ${e}`),
+                );
+              });
+
               log('info', `✅ Knowledge sync (NLM) activated — ${agents.length} notebooks: ${agents.map(a => a.name).join(', ')}`);
             } catch (error) {
               log('warn', `⚠️ Knowledge sync (NLM) failed to initialize: ${error}`);

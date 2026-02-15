@@ -132,6 +132,46 @@ export class KnowledgeSync {
     }
   }
 
+  /**
+   * Note 자동 정리: 오래된 Note 삭제
+   * 제목의 날짜 파싱 → maxAgeDays 초과 시 삭제
+   * Note 제목 형식: "[SUCCESS] 2026-02-15: BUY BTC" 또는 "[FAIL] 2026-02-10: ..."
+   */
+  async pruneOldNotes(
+    km: KnowledgeManager,
+    agentIds: string[],
+    maxAgeDays: number = 30,
+  ): Promise<number> {
+    const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+    let deleted = 0;
+
+    for (const agentId of agentIds) {
+      try {
+        const client = await km.getClient(agentId);
+        const notes = await client.noteList();
+
+        for (const note of notes) {
+          const dateMatch = note.title.match(/(\d{4}-\d{2}-\d{2})/);
+          if (!dateMatch) continue;
+
+          const noteDate = new Date(dateMatch[1]).getTime();
+          if (isNaN(noteDate) || noteDate >= cutoff) continue;
+
+          await client.noteDelete(note.id);
+          deleted++;
+          log('info', `🗑️ NLM pruned: ${note.title} (${agentId})`);
+        }
+
+        if (deleted > 0) km.invalidateOutline(agentId);
+      } catch (e) {
+        log('warn', `⚠️ NLM prune failed for ${agentId}: ${e}`);
+      }
+    }
+
+    if (deleted > 0) log('info', `🗑️ NLM pruned ${deleted} old notes`);
+    return deleted;
+  }
+
   private resolveAgentForDecision(decision: Decision): string | null {
     if (decision.platform?.startsWith('binance')) return 'binance_trader';
     if (decision.platform === 'polymarket') return 'pm_trader';
