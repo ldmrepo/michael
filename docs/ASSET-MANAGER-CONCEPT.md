@@ -1,0 +1,871 @@
+# 자산관리 전문가 (AI Asset Manager) — 개념 정의서
+
+## 한 줄 정의
+
+> **마이클은 전문가 팀을 거느린 최종 의사결정자다.**
+> 직접 분석하거나 거래하지 않는다. 각 분야 전문가에게 일을 시키고,
+> 보고를 받고, 목표에 부합하는 최종 결정을 내린다.
+
+---
+
+## 핵심 원칙
+
+### 마이클은 "팀장"이다
+
+```
+                        사용자 (오너)
+                           │
+                           │ 목표 설정, 최종 승인
+                           ▼
+                    ┌──────────────┐
+                    │   마이클      │
+                    │  (의사결정자)  │
+                    │              │
+                    │ • 목표 고정   │
+                    │ • 팀 운영    │
+                    │ • 최종 판단   │
+                    │ • 사용자 보고  │
+                    └──────┬───────┘
+                           │
+              ┌────────────┼────────────┐
+              │            │            │
+         정보 수집팀    분석팀      실행팀
+```
+
+**마이클이 하는 것:**
+- 목표를 기억하고 흔들리지 않는다
+- 전문가들에게 질문하고 데이터를 요청한다
+- 서로 다른 의견을 종합하여 판단한다
+- 사용자에게 근거와 함께 제안한다
+- 승인된 결정을 실행팀에 지시한다
+
+**마이클이 하지 않는 것:**
+- 직접 차트를 읽지 않는다 (기술분석가에게 시킨다)
+- 직접 뉴스를 찾지 않는다 (정보수집가에게 시킨다)
+- 직접 주문을 넣지 않는다 (트레이더에게 시킨다)
+- 감정적으로 판단하지 않는다 (규칙에 따른다)
+
+---
+
+## 마이클의 저장소 (State Store)
+
+> ⚠️ 이 저장소는 기존 Memory 시스템과 **완전히 다른 것**이다.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                     마이클의 두 가지 뇌                        │
+│                                                              │
+│  Memory (기존)               State Store (신규)               │
+│  ─────────────               ────────────────                │
+│  "기억"                      "판단 데스크"                     │
+│                                                              │
+│  • 대화 기록 (messages)       • 투자 목표 (mandate)            │
+│  • 사용자 정보 (facts)        • 포트폴리오 상태 (state)         │
+│  • 스케줄 (schedules)        • 전문가 보고 (inputs)            │
+│  • 벡터 임베딩 (embeddings)   • 결정 일지 (decisions)          │
+│                                                              │
+│  용도: "지난 대화 기억해?"     용도: "지금 뭘 해야 하지?"        │
+│  성격: 과거 지향, 축적형       성격: 현재 지향, 갱신형           │
+│  구현: SQLite (memory.db)     구현: YAML/JSON 파일             │
+│       + 벡터 (memory-index)        (data/state/)              │
+│                                                              │
+│  → 건드리지 않는다            → 새로 만든다                     │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**왜 분리하는가:**
+- Memory는 **대화형 AI의 기억** — 과거 대화를 찾고 맥락을 유지하는 것
+- State Store는 **의사결정자의 현황판** — 지금 목표가 뭐고, 상태가 어떻고, 뭘 해야 하는지
+- 마이클이 투자 판단을 할 때 10만 건의 대화 기록을 뒤질 필요 없다
+- 서랍 4개만 열면 된다
+
+**State Store의 물리적 구현:**
+```
+data/state/
+├── mandate.yaml      # 서랍1: 목표 (사용자가 설정, 거의 안 바뀜)
+├── state.yaml        # 서랍2: 현재 상태 (포트폴리오 분석가가 갱신)
+├── inputs.yaml       # 서랍3: 판단 재료 (각 전문가가 자기 영역 갱신)
+└── decisions/        # 서랍4: 결정 일지 (마이클만 추가, 절대 덮어쓰기 안 함)
+    ├── 2026-02-15.yaml
+    ├── 2026-02-14.yaml
+    └── ...
+```
+
+YAML을 쓰는 이유:
+- 사람이 읽을 수 있다 (디버깅, 감사)
+- git으로 변경 이력 추적 가능
+- 구조가 단순하다 (DB 스키마 불필요)
+- 파일 하나 열면 전체가 보인다
+
+> 마이클의 머릿속은 **4칸 서랍장**이다.
+> 단순하고 명확해야 한다. 한눈에 보고 판단할 수 있어야 한다.
+
+```
+┌─────────────────────────────────────────────────┐
+│               마이클의 서랍장                      │
+│                                                 │
+│  ┌─────────────┐  ┌─────────────┐               │
+│  │ 1. 목표     │  │ 2. 현재 상태 │               │
+│  │  (불변)     │  │  (실시간)    │               │
+│  └─────────────┘  └─────────────┘               │
+│  ┌─────────────┐  ┌─────────────┐               │
+│  │ 3. 판단 재료 │  │ 4. 결정 일지 │               │
+│  │  (전문가→)  │  │  (마이클→)   │               │
+│  └─────────────┘  └─────────────┘               │
+└─────────────────────────────────────────────────┘
+```
+
+---
+
+### 서랍 1: 목표 (Mandate) — 불변
+
+사용자가 바꾸지 않는 한 절대 변하지 않는다.
+모든 판단의 기준점. 전문가가 아무리 좋은 기회를 가져와도 여기에 위배되면 거절.
+
+```yaml
+mandate:
+  return_target: "월 +3~5%"
+  max_drawdown: -15%          # 총자산 대비 MDD 한도
+  risk_first: true            # 잃지 않는 것 > 버는 것
+  max_single_trade: 5%        # 단일 거래 총자산의 5% 이내
+  max_single_asset: 50%       # 단일 자산/플랫폼 50% 초과 금지
+  min_cash: 10%               # 최소 현금 비율 (기회 포착용)
+  target_allocation:          # 목표 자산배분
+    binance_spot: 35%
+    binance_futures: 15%
+    polymarket: 30%
+    cash: 20%
+```
+
+### 서랍 2: 현재 상태 (State) — 실시간 갱신
+
+포트폴리오 분석가가 업데이트. 마이클이 판단할 때 제일 먼저 보는 서랍.
+
+```yaml
+state:
+  updated_at: "2026-02-15T09:00:00Z"
+  total_nav: 1486.00          # 총 자산가치 (USD)
+  cash: 316.56                # 현금 (USDT + USDC.e)
+  cash_ratio: 21.3%           # 현금 비율
+  allocation:                 # 현재 자산배분
+    binance_spot: 597.20      # 40.2%
+    binance_futures: 191.00   # 12.8%
+    polymarket: 381.24        # 25.6%
+    cash: 316.56              # 21.3%
+  deviation:                  # 목표 대비 편차
+    binance_spot: +5.2%       # 초과 → 매도 후보
+    binance_futures: -2.2%    # 부족
+    polymarket: -4.4%         # 부족 → 매수 후보
+    cash: +1.3%               # OK
+  pnl:
+    today: +12.30
+    week: -23.50
+    month: +45.80
+    total: +86.00
+  mdd_current: -3.2%          # 현재 고점 대비 낙폭
+  alerts_active: 2            # 미확인 알림 수
+```
+
+### 서랍 3: 판단 재료 (Inputs) — 전문가들이 채운다
+
+각 전문가가 자기 영역을 업데이트. 마이클은 읽기만 한다.
+
+```yaml
+inputs:
+  updated_at: "2026-02-15T09:00:00Z"
+
+  market_regime: "neutral"    # 기술분석가가 판단
+  overall_score: +15          # -100 ~ +100
+  fear_greed: 42              # 시장데이터 수집가
+
+  # 리스크 관리자
+  risk:
+    level: "moderate"         # low / moderate / high / critical
+    alerts:
+      - type: "futures_liquidation"
+        asset: "ETH"
+        distance: 8%
+        severity: "high"
+    violations: []             # 목표 위반 사항 (있으면 거래 차단)
+
+  # 기술 분석가
+  signals:
+    - asset: "BTC"
+      signal: "buy"
+      reason: "RSI 28, 200MA 지지"
+      confidence: 0.72
+
+  # PM 확률 분석가
+  opportunities:
+    - market: "Fed March Hold"
+      market_price: 0.85
+      estimated_prob: 0.92
+      edge: 0.07
+      kelly: 0.12
+      confidence: 0.80
+
+  # 뉴스 수집가
+  headlines:
+    - "SEC, ETH ETF 옵션 승인 검토"
+    - "BTC ETF 순유입 $340M 3일 연속"
+
+  # 매크로 분석가
+  macro:
+    fed_rate: 4.50
+    next_fomc: "2026-03-18"
+    dxy: 107.2
+    dxy_trend: "상승"
+```
+
+### 서랍 4: 결정 일지 (Decisions) — 마이클만 쓴다
+
+마이클이 내린 모든 결정을 기록. 왜 그랬는지, 결과가 어땠는지.
+이 기록이 쌓여야 전략이 개선된다.
+
+```yaml
+decisions:
+  - id: "D-20260215-001"
+    timestamp: "2026-02-15T09:15:00Z"
+    action: "BUY"
+    target: "BTC"
+    platform: "binance_spot"
+    amount: 45.00             # USD
+    price: 63200
+    reason: "RSI 28 + Fear 28 + ETF 유입 지속, 목표배분 대비 spot 초과이나 BTC 자체는 부족"
+    inputs_used:              # 어떤 전문가 의견을 참고했나
+      - "기술분석가: RSI 28 매수신호"
+      - "시장데이터: Fear&Greed 28"
+      - "온체인: ETF 순유입 3일 연속"
+      - "리스크관리자: 위반사항 없음"
+    mandate_check:            # 목표 대조 결과
+      single_trade: "45/1486 = 3.0% ✅ (<5%)"
+      single_asset: "BTC 비중 28% ✅ (<50%)"
+      cash_after: "271/1486 = 18.2% ✅ (>10%)"
+      risk_level: "moderate ✅"
+    status: "approved"        # proposed → approved → executed → settled
+    result:                   # 실행 후 기록
+      executed_at: "2026-02-15T09:16:00Z"
+      fill_price: 63215
+      fee: 0.045
+      pnl: null               # 아직 청산 안 됨
+```
+
+---
+
+### 저장소 설계 원칙
+
+1. **한눈에 보인다** — 마이클이 판단 전에 서랍 4개를 훑으면 전체 그림이 보여야 한다
+2. **누가 썼는지 명확하다** — 목표=사용자, 상태=포트폴리오분석가, 재료=각전문가, 결정=마이클
+3. **이력이 남는다** — 특히 서랍4(결정)는 절대 덮어쓰지 않고 추가만 한다
+4. **전문가는 자기 영역만 쓴다** — 기술분석가가 리스크 영역을 수정할 수 없다
+5. **마이클은 서랍1,2,3을 읽고 → 서랍4에 쓴다** — 이것이 의사결정의 전부
+
+---
+
+## 전문가 팀 — 에이전트별 스킬 & 도구
+
+> 각 에이전트는 **자기 영역의 스킬과 도구만** 가진다.
+> 다른 영역의 도구는 접근하지 않는다. 마이클만 전체를 본다.
+
+```
+                            사용자 (오너)
+                               │ 목표 설정, 승인/거절
+                               ▼
+                      ┌─────────────────┐
+                      │     마이클       │  도구: Gateway, Memory,
+                      │   (의사결정자)    │       Scheduler, Telegram,
+                      │                 │       Calendar, Gmail
+                      └────────┬────────┘
+                               │
+           ┌───────────────────┼───────────────────┐
+           │                   │                   │
+   ┌───────▼───────┐  ┌───────▼───────┐  ┌───────▼───────┐
+   │  정보 수집팀    │  │   분석팀       │  │   실행팀       │
+   │               │  │               │  │               │
+   │ • 시장데이터   │  │ • 기술분석     │  │ • Binance     │
+   │   수집가      │  │ • 리스크관리   │  │   트레이더    │
+   │ • 매크로분석   │  │ • PM확률분석   │  │ • PM 트레이더  │
+   │ • 뉴스수집    │  │ • 포트폴리오   │  │ • DCA 봇      │
+   │ • 소셜감시    │  │   분석        │  │ • 리밸런서     │
+   │ • 온체인분석   │  └───────────────┘  └───────────────┘
+   │ • PM스캐너    │
+   └───────────────┘
+
+   각 에이전트는 자기만의 스킬(SKILL.md)과 도구(*.py)를 보유
+   마이클은 에이전트에게 "지시"하고 "보고"를 받는다
+   에이전트끼리 직접 소통하지 않는다 (모두 마이클을 거친다)
+```
+
+---
+
+### 정보 수집팀 (Intelligence Agents)
+
+#### 시장 데이터 수집가 (Market Data Collector)
+
+역할: 크립토/전통 시장 가격·거래량·파생상품 데이터 수집
+
+| 구분 | 내용 |
+|------|------|
+| **스킬** | `finance`, `crypto-investment-sources` |
+| **도구** | `collect_market.py` (CoinGecko, Fear&Greed), `collect_binance_api.py` (펀딩레이트, OI), `fetch-stock.py` (yfinance) |
+| **API** | CoinGecko, Binance Public API, alternative.me, yfinance |
+| **출력** | `{ symbol, price, change_24h, volume, funding_rate, open_interest }` |
+| **주기** | 실시간(5분) ~ 4시간 |
+
+#### 매크로 분석가 (Macro Analyst)
+
+역할: 거시경제 지표 수집 및 해석
+
+| 구분 | 내용 |
+|------|------|
+| **스킬** | `crypto-investment-sources` (매크로 섹션) |
+| **도구** | `collect_macro.py` (FRED 경제지표) |
+| **API** | FRED (Federal Reserve), CME FedWatch |
+| **출력** | `{ fed_rate, dxy, cpi, unemployment, fed_probability }` |
+| **주기** | 일 2회 (08:00, 20:00) |
+
+#### 뉴스 수집가 (News Collector)
+
+역할: 투자 관련 뉴스 수집 및 요약
+
+| 구분 | 내용 |
+|------|------|
+| **스킬** | `news` |
+| **도구** | `collect_news.py` (NewsAPI), `fetch-news.sh` |
+| **API** | NewsAPI, 크립토 전문매체 RSS |
+| **출력** | `{ headline, source, sentiment, relevance_score, summary }` |
+| **주기** | 2시간 |
+
+#### 소셜 감시자 (Social Monitor)
+
+역할: X/Twitter 키워드 감시, 시장 심리 포착
+
+| 구분 | 내용 |
+|------|------|
+| **스킬** | `x` |
+| **도구** | Playwright 브라우저 자동화 (X 검색/조회) |
+| **API** | X via Playwright (인증 세션) |
+| **출력** | `{ keyword, tweet_count, sentiment, key_accounts, trending }` |
+| **주기** | 수시 (마이클 요청 시) |
+
+#### 온체인 분석가 (On-chain Analyst)
+
+역할: 기관 자금 흐름, 고래 이동, 옵션 데이터 수집
+
+| 구분 | 내용 |
+|------|------|
+| **스킬** | `binance-analytics`, `crypto-investment-sources` |
+| **도구** | `collect_etf_flows.py`, `collect_smart_money.py`, `collect_options.py`, `collect_defi.py` |
+| **API** | Binance Analytics (Playwright), DeFiLlama, Deribit |
+| **출력** | `{ etf_flow, whale_moves, iv, max_pain, tvl_ranking }` |
+| **주기** | 일 1~2회 |
+
+#### PM 스캐너 (Prediction Market Scanner)
+
+역할: Polymarket 마켓 탐색, 기회 발견
+
+| 구분 | 내용 |
+|------|------|
+| **스킬** | `prediction-market` |
+| **도구** | `scan_markets.py`, `monitor_prices.py`, `monitor_arbitrage.py` |
+| **API** | Polymarket Gamma API, CLOB API |
+| **출력** | `{ market_id, question, yes_price, volume, edge, arb_spread }` |
+| **주기** | 15분(가격) / 4시간(신규) / 6시간(고확률) |
+
+---
+
+### 분석팀 (Analysis Agents)
+
+#### 기술 분석가 (Technical Analyst)
+
+역할: 차트 패턴, 기술적 지표 분석
+
+| 구분 | 내용 |
+|------|------|
+| **스킬** | `binance-analytics`, `investment` |
+| **도구** | `analyze.py` (Claude CLI 기반 AI 분석), Binance kline 데이터 |
+| **입력** | 시장 데이터 수집가의 가격/거래량 데이터 |
+| **출력** | `{ rsi, ma_trend, support, resistance, pattern, signal }` |
+| **판단** | "BTC 일봉 RSI 28, 200MA 지지 근접 → 매수 신호" |
+
+#### 리스크 관리자 (Risk Manager)
+
+역할: 포트폴리오 위험 평가, 경고 발생
+
+| 구분 | 내용 |
+|------|------|
+| **스킬** | `investment` (리스크 섹션), `binance-futures-advanced` |
+| **도구** | `monitor_risk.py`, `monitor_prices.py` |
+| **입력** | 포트폴리오 현황 + 현재 가격 |
+| **출력** | `{ alert_type, severity, position, distance_to_liquidation, recommendation }` |
+| **판단** | "ETH Long 청산가 -8%, severity=HIGH → 포지션 축소 권고" |
+| **권한** | ⚠️ **거부권** — 리스크 한도 초과 시 마이클에게 거래 차단 요청 |
+
+#### PM 확률 분석가 (PM Probability Analyst)
+
+역할: 예측시장의 실제 확률 추정, 엣지 계산
+
+| 구분 | 내용 |
+|------|------|
+| **스킬** | `prediction-market` |
+| **도구** | `estimate_true_probability.py`, `calculate_kelly.py`, `portfolio_intelligence.py` |
+| **입력** | PM 스캐너의 마켓 데이터 + 뉴스/매크로 컨텍스트 |
+| **출력** | `{ market, market_price, estimated_prob, edge, kelly_fraction, confidence }` |
+| **판단** | "시장 92% vs 추정 97% → 엣지 5%, 켈리 12%" |
+
+#### 포트폴리오 분석가 (Portfolio Analyst)
+
+역할: 전체 자산 현황 파악, 배분 상태 평가
+
+| 구분 | 내용 |
+|------|------|
+| **스킬** | `investment`, `prediction-market` |
+| **도구** | `sync_balance.py`, `snapshot_nav.py`, `check_portfolio.py`, `show_portfolio_detailed.py`, `track_performance.py` |
+| **입력** | Binance 잔고 + PM 포지션 + 현금 |
+| **출력** | `{ total_nav, allocation: {binance_spot, futures, pm, cash}, deviation_from_target, pnl }` |
+| **판단** | "BTC 비중 45% → 목표 35% 초과, PM 비중 25% → 목표 30% 미달" |
+
+---
+
+### 실행팀 (Execution Agents)
+
+#### Binance 트레이더 (Binance Trader)
+
+역할: Binance Spot/Futures 주문 실행
+
+| 구분 | 내용 |
+|------|------|
+| **스킬** | `investment`, `binance-futures-advanced`, `binance-trading-bots` |
+| **도구** | `execute_order.py`, `binance_client.py`, `rebalance_futures.py` |
+| **API** | Binance API (인증, 주문 권한) |
+| **실행 가능** | 시장가/지정가 매수·매도, TP/SL 설정, 레버리지 조정 |
+| **권한** | 마이클의 지시 + 사용자 승인 후에만 실행 |
+
+#### PM 트레이더 (PM Trader)
+
+역할: Polymarket CLOB에서 포지션 매수/매도
+
+| 구분 | 내용 |
+|------|------|
+| **스킬** | `prediction-market` |
+| **도구** | `polymarket_client.py`, `execute_rebalance_pm.py`, `sell_positions.py`, `sell_risk_positions.py`, `wallet_utils.py` |
+| **API** | Polymarket CLOB API (EOA 서명, Proxy Wallet) |
+| **실행 가능** | YES/NO 매수·매도, 포지션 청산, USDC.e 관리 |
+| **권한** | 마이클의 지시 + 사용자 승인 후에만 실행 |
+
+#### DCA 봇 (DCA Bot)
+
+역할: 정기적 자동 매수 실행
+
+| 구분 | 내용 |
+|------|------|
+| **스킬** | `investment`, `binance-trading-bots` |
+| **도구** | `execute_dca.py` |
+| **실행 가능** | 사전 설정된 금액·주기·종목으로 자동 매수 |
+| **권한** | 사용자가 사전 승인한 규칙 내에서 자율 실행 (L4) |
+
+#### 리밸런서 (Rebalancer)
+
+역할: 목표 자산배분 비율 복원
+
+| 구분 | 내용 |
+|------|------|
+| **스킬** | `investment`, `prediction-market` |
+| **도구** | `execute_rebalance.py`, `cross_asset_rebalancer.py`, `rebalance_engine.py` |
+| **실행 가능** | 초과 자산 매도 → 부족 자산 매수 (크로스 플랫폼) |
+| **권한** | 마이클의 지시 + 사용자 승인 후에만 실행 |
+
+---
+
+### 인프라 지원 (마이클 자체 도구)
+
+마이클(의사결정자)이 팀 운영을 위해 직접 사용하는 도구:
+
+| 도구 | 용도 |
+|------|------|
+| **Gateway** | 전문가(에이전트)와의 메시지 라우팅 |
+| **Memory** | 목표, 거래 기록, 판단 근거 저장 |
+| **Scheduler** | 전문가 호출 스케줄 관리 (cron) |
+| **Telegram** | 사용자와 소통 (보고, 승인 요청) |
+| **Calendar** | 투자 일정 관리 (정산일, FOMC, CPI 발표) |
+| **Gmail** | 리포트 발송, 거래소 알림 수신 |
+
+---
+
+## 일일 루틴 (Daily Routine)
+
+> 자산관리 전문가는 매일 같은 루틴을 반복한다.
+> 루틴이 돌아야 눈덩이가 굴러간다. 루틴이 멈추면 눈덩이도 멈춘다.
+
+마이클의 하루는 3개의 정기 사이클 + 1개의 상시 감시로 구성된다.
+
+---
+
+### 아침 루틴 (Morning Cycle) — 매일 08:00
+
+**목적**: 밤새 무슨 일이 있었나? 오늘 뭘 해야 하나?
+
+```
+08:00  ┌─────────────────────────────────────────────┐
+       │ 1. 상태 갱신                                  │
+       │    포트폴리오 분석가 → state.yaml 갱신          │
+       │    "총자산 $1,486, 현금 21%, MDD -3.2%"       │
+       │                                              │
+       │ 2. 정보 수집                                  │
+       │    시장데이터 수집가 → 밤새 가격 변동            │
+       │    매크로 분석가    → 경제 지표 업데이트          │
+       │    뉴스 수집가     → 주요 뉴스 요약             │
+       │    온체인 분석가    → ETF 플로우, 고래 이동       │
+       │    PM 스캐너      → 포지션 현황, 만기 임박       │
+       │    → inputs.yaml 갱신                         │
+       │                                              │
+       │ 3. 분석                                       │
+       │    기술 분석가     → 시장 레짐, 신호             │
+       │    리스크 관리자    → 위반 사항 체크             │
+       │    포트폴리오 분석가 → 배분 편차 체크             │
+       │    → inputs.yaml 갱신                         │
+       │                                              │
+       │ 4. 판단                                       │
+       │    마이클: 서랍 1,2,3 읽기                      │
+       │    • 목표 위반 있나? → 있으면 조치 제안          │
+       │    • 리밸런싱 필요한가? → 편차 5% 초과 시 제안   │
+       │    • 새 기회 있나? → 엣지 있으면 제안            │
+       │    • 아무것도 없으면 → "관망" 기록               │
+       │    → decisions/ 에 기록                        │
+       │                                              │
+       │ 5. 보고                                       │
+       │    마이클 → 사용자 (Telegram 모닝 브리핑)        │
+       │    "📊 모닝 브리핑                              │
+       │     총자산: $1,486 (+0.8%)                     │
+       │     시장: Neutral (스코어 +15)                  │
+       │     오늘 일정: FOMC 의사록 공개                  │
+       │     제안: 없음 (관망)"                          │
+       └─────────────────────────────────────────────┘
+```
+
+### 낮 루틴 (Midday Cycle) — 매일 14:00
+
+**목적**: 아침 이후 변화가 있나? 아시아/유럽 시장 점검
+
+```
+14:00  ┌─────────────────────────────────────────────┐
+       │ 1. 상태 갱신 (포트폴리오 분석가)                │
+       │ 2. 정보 수집 (시장데이터 + 뉴스 + 소셜)         │
+       │ 3. 분석 (기술분석 + 리스크 체크)                │
+       │ 4. 판단 (아침과 동일한 체크리스트)               │
+       │ 5. 변동 있으면 → Telegram 알림                 │
+       │    변동 없으면 → 조용히 기록만                   │
+       └─────────────────────────────────────────────┘
+```
+
+### 저녁 루틴 (Evening Cycle) — 매일 21:00
+
+**목적**: 하루 마감. 미국 장 마감 데이터 반영. 내일 준비.
+
+```
+21:00  ┌─────────────────────────────────────────────┐
+       │ 1. 상태 갱신 + NAV 스냅샷 저장                 │
+       │ 2. 정보 수집 (ETF 마감 플로우, 옵션 데이터)      │
+       │ 3. 하루 결산                                   │
+       │    • 오늘 PnL 계산                             │
+       │    • 실행된 거래 결과 기록                       │
+       │    • 내일 주요 이벤트 확인 (Calendar)             │
+       │ 4. 판단 (필요시)                               │
+       │ 5. 보고 → Telegram 이브닝 리캡                  │
+       │    "📋 이브닝 리캡                              │
+       │     오늘 PnL: +$12.30                          │
+       │     실행: BTC 매수 $45 @ $63,215 ✅             │
+       │     내일: FOMC 의사록 23:00"                    │
+       └─────────────────────────────────────────────┘
+```
+
+### 감시 서비스 (Sentinel) — 24시간 경량 프로세스
+
+> 감시 서비스는 **마이클이 아니다.** 전문가도 아니다.
+> 숫자만 보고, 조건에 걸리면, 마이클을 깨우는 **당직 근무자**다.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│  루틴 (08/14/21시)          감시 서비스 (Sentinel)            │
+│  = 정기 회의                = 당직 근무자                     │
+│  = 마이클이 직접 주재        = 마이클 없이도 돌아감             │
+│  = 무겁다 (AI 분석 포함)     = 가볍다 (숫자 비교만)            │
+│  = 하루 3회                 = 24시간 상시                    │
+│                                                             │
+│              이상 감지 시                                     │
+│  Sentinel ──────────────→ 트리거 발행 → 마이클 깨움           │
+│              (판단 안 함)         (판단은 마이클이)            │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Sentinel의 원칙:**
+- **가볍다**: AI 호출 없음. Python/Shell 스크립트로 API 한 번 찍고 숫자 비교만
+- **멍청하다**: 분석 안 함. "5% 빠졌다"만 알고, "왜 빠졌는지"는 모름
+- **빠르다**: 조건 체크에 수 초. 전체 사이클 1분 이내
+- **항상 돈다**: 마이클이 자고 있어도, 루틴 사이에도, Sentinel은 돈다
+- **깨우기만 한다**: 트리거를 발행할 뿐, 대응은 마이클의 몫
+
+#### 감시 항목과 트리거 조건
+
+```yaml
+sentinel:
+  # ── 가격 감시 (1분~5분 주기) ──
+  price_watch:
+    interval: 5m
+    checks:
+      - name: "급변"
+        condition: "abs(change_1h) >= 5%"
+        trigger: PRICE_SPIKE
+        urgency: high
+      - name: "폭락"
+        condition: "abs(change_1h) >= 10%"
+        trigger: PRICE_CRASH
+        urgency: critical
+
+  # ── 청산 감시 (5분 주기) ──
+  liquidation_watch:
+    interval: 5m
+    checks:
+      - name: "청산 접근"
+        condition: "distance_to_liquidation <= 10%"
+        trigger: LIQUIDATION_NEAR
+        urgency: critical
+      - name: "청산 경고"
+        condition: "distance_to_liquidation <= 20%"
+        trigger: LIQUIDATION_WARNING
+        urgency: high
+
+  # ── PM 감시 (15분 주기) ──
+  pm_watch:
+    interval: 15m
+    checks:
+      - name: "PM 가격 급변"
+        condition: "abs(price_change) >= 5%"
+        trigger: PM_PRICE_MOVE
+        urgency: medium
+      - name: "PM 만기 임박"
+        condition: "hours_to_expiry <= 24"
+        trigger: PM_EXPIRING
+        urgency: high
+      - name: "PM 정산 완료"
+        condition: "position.status == 'settled'"
+        trigger: PM_SETTLED
+        urgency: medium
+
+  # ── 차익거래 감시 (30분 주기) ──
+  arb_watch:
+    interval: 30m
+    checks:
+      - name: "차익거래 기회"
+        condition: "spread >= 3%"
+        trigger: ARB_OPPORTUNITY
+        urgency: medium
+
+  # ── 배분 감시 (30분 주기) ──
+  allocation_watch:
+    interval: 30m
+    checks:
+      - name: "현금 부족"
+        condition: "cash_ratio < mandate.min_cash"
+        trigger: CASH_LOW
+        urgency: high
+      - name: "집중도 초과"
+        condition: "any_asset_ratio > mandate.max_single_asset"
+        trigger: CONCENTRATION_BREACH
+        urgency: high
+
+  # ── 외부 이벤트 감시 (1시간 주기) ──
+  event_watch:
+    interval: 1h
+    checks:
+      - name: "FOMC/CPI 등 예정 이벤트"
+        condition: "hours_to_event <= 2"
+        trigger: EVENT_APPROACHING
+        urgency: medium
+```
+
+#### 트리거 → 마이클 기상
+
+```
+Sentinel이 조건 감지
+    │
+    ▼
+트리거 발행 (Gateway 메시지)
+    │
+    │  { from: "sentinel",
+    │    to: "michael",
+    │    trigger: "PRICE_CRASH",
+    │    urgency: "critical",
+    │    data: { asset: "BTC", change: -11.2%, price: 56800 },
+    │    timestamp: "2026-02-15T03:22:00Z" }
+    │
+    ▼
+마이클 기상
+    │
+    ▼
+긴급 판단 사이클 실행 (루틴과 동일한 순서, 축소판)
+    │
+    ├─ urgency: critical → 전문가 전원 소집, 즉시 사용자 알림
+    ├─ urgency: high     → 관련 전문가만 소집, 사용자 알림
+    └─ urgency: medium   → inputs.yaml에 기록, 다음 루틴에서 처리
+```
+
+#### Sentinel 구현 (경량)
+
+```
+sentinel.ts (또는 sentinel.py)
+├── 단독 프로세스 (마이클과 별도)
+├── 의존성 최소화:
+│   ├── Binance WebSocket (가격 스트림)
+│   ├── Polymarket REST (15분 폴링)
+│   ├── state.yaml 읽기 (현재 포지션)
+│   └── mandate.yaml 읽기 (임계값)
+├── AI 호출 없음
+├── DB 쓰기 없음 (읽기만)
+└── 출력: Gateway로 트리거 메시지 전송
+```
+
+**마이클 vs Sentinel 비교:**
+
+| | 마이클 (의사결정자) | Sentinel (감시 서비스) |
+|---|---|---|
+| **돌아가는 시간** | 루틴 시간에만 (08/14/21) | 24시간 항상 |
+| **무게** | 무겁다 (AI 분석, 전문가 호출) | 가볍다 (숫자 비교만) |
+| **판단** | 한다 (목표 대조, 제안 생성) | 안 한다 (조건 매칭만) |
+| **실행** | 시킨다 (실행팀에 지시) | 안 한다 (깨우기만) |
+| **State Store** | 읽고 쓴다 | 읽기만 |
+| **프로세스** | 필요시 기동 | 항상 상주 |
+
+---
+
+### 주간 루틴 (Weekly) — 매주 월요일 09:00
+
+```
+월 09:00  ┌───────────────────────────────────────────┐
+          │ 주간 심층 분석                               │
+          │                                            │
+          │ 1. 주간 성과 리뷰                            │
+          │    • 주간 PnL, 승률, MDD 변화                │
+          │    • 결정 일지 리뷰 (좋은 판단 / 나쁜 판단)     │
+          │                                            │
+          │ 2. 전략 점검                                 │
+          │    • 자산배분 목표 vs 현재 편차                │
+          │    • 리밸런싱 필요 여부 판단                   │
+          │    • PM 포지션: 만기 임박/정산 예정 정리        │
+          │                                            │
+          │ 3. 다음 주 준비                               │
+          │    • 주요 이벤트 캘린더 (FOMC, CPI 등)        │
+          │    • 만기 도래 PM 포지션 목록                  │
+          │                                            │
+          │ 4. 보고 → Telegram 주간 리포트                │
+          └───────────────────────────────────────────┘
+```
+
+### 월간 루틴 (Monthly) — 매월 1일 09:00
+
+```
+1일 09:00  ┌──────────────────────────────────────────┐
+           │ 월간 성과 보고서                             │
+           │                                           │
+           │ 1. 월간 KPI                                │
+           │    • NAV 변화 (목표 +3~5% 대비)              │
+           │    • MDD (목표 -15% 대비)                   │
+           │    • 승률, 거래 횟수, 평균 수익               │
+           │                                           │
+           │ 2. 전략 효과 분석                            │
+           │    • 어떤 전문가의 신호가 가장 정확했나         │
+           │    • 어떤 유형의 거래가 수익이 좋았나          │
+           │    • 피해야 할 패턴은?                       │
+           │                                           │
+           │ 3. 목표(Mandate) 재확인                     │
+           │    • 사용자에게 목표 유지/변경 확인 요청       │
+           │                                           │
+           │ 4. 보고 → Telegram + Gmail 월간 리포트       │
+           └──────────────────────────────────────────┘
+```
+
+---
+
+### 루틴과 서랍장의 관계
+
+```
+┌──────────┐    읽기     ┌──────────────┐
+│ 서랍1    │◄────────── │  모든 루틴     │  "목표에 맞나?"
+│ 목표     │            │              │
+└──────────┘            │              │
+┌──────────┐    갱신     │  아침/낮/저녁  │
+│ 서랍2    │◄────────── │  정기 사이클   │  포트폴리오 분석가가 갱신
+│ 현재상태  │            │              │
+└──────────┘            │              │
+┌──────────┐    갱신     │  정보수집 +   │
+│ 서랍3    │◄────────── │  상시감시     │  각 전문가가 자기 영역 갱신
+│ 판단재료  │            │              │
+└──────────┘            │              │
+┌──────────┐    쓰기     │  판단 단계    │
+│ 서랍4    │◄────────── │  (마이클만)   │  매 사이클 끝에 기록
+│ 결정일지  │            └──────────────┘
+└──────────┘
+```
+
+**루틴의 핵심**: 매 사이클마다 똑같은 순서를 밟는다.
+1. 상태 갱신 (서랍2)
+2. 정보 수집 (서랍3)
+3. 분석 (서랍3)
+4. 판단 (서랍1 대조 → 서랍4 기록)
+5. 보고 (사용자에게 Telegram)
+
+아무 일이 없어도 루틴은 돈다. "관망"도 결정이고, 기록한다.
+
+---
+
+## "눈덩이(Snowball)" 원칙
+
+워렌 버핏: *"인생은 눈덩이 같다. 중요한 건 젖은 눈과 아주 긴 언덕을 찾는 것이다."*
+
+- **젖은 눈** = 꾸준한 소액 수익 (전문가 팀이 기회를 찾아온다)
+- **긴 언덕** = 시간 + 일관성 (루틴이 감정 없이 24시간 굴린다)
+- **핵심**: 한 방이 아니라 **잃지 않으면서 꾸준히** 불려나가는 것
+
+1. **잃지 않는 것이 먼저** — 리스크 관리자의 경고가 최우선
+2. **작게, 자주** — 소액 거래를 반복하여 복리 효과 극대화
+3. **일관성** — 루틴을 지킨다. 전문가 의견이 갈려도 규칙에 따른다
+4. **기록** — 모든 판단과 결과를 서랍4에 저장 → 전략 개선
+5. **분산** — 한 바구니에 담지 않는다
+6. **현금은 무기** — 최소 10% 현금으로 급락 시 매수 기회 포착
+
+---
+
+## 현재 → 목표
+
+```
+현재:  감시병 (전문가 팀은 있으나 팀장도 루틴도 없다)
+       ┃
+       ▼
+1단계: 기반 구축
+       • State Store 생성 (data/state/ — 4칸 서랍장)
+       • mandate.yaml 초기값 설정
+       • 포트폴리오 분석가가 state.yaml 갱신하는 파이프라인
+       ┃
+       ▼
+2단계: 루틴 가동
+       • 아침/낮/저녁 3회 정기 사이클 + 상시 감시
+       • 수집 → 분석 → 판단 → 보고 파이프라인
+       • Telegram 모닝 브리핑 / 이브닝 리캡
+       ┃
+       ▼
+3단계: 실행 연결
+       • 판단 → 제안 → 승인 → 실행팀 지시
+       • 거래 결과 → 서랍4 기록 → 다음 판단에 반영
+       ┃
+       ▼
+4단계: 전략 고도화
+       • 주간/월간 리뷰 루틴
+       • 성과 기반 전략 자동 개선
+       • DCA/손절 규칙 기반 자율 실행
+       ┃
+       ▼
+목표:  루틴을 돌리는 의사결정자
+       "매일 같은 루틴을 반복하며, 목표에 맞게 판단하고, 실행시킨다"
+```

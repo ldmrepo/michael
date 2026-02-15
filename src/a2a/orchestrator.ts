@@ -68,13 +68,13 @@ export interface TaskStep {
  * const orchestrator = new A2AOrchestrator();
  *
  * // Register agents
- * orchestrator.registerAgent('calendar', 'https://calendar-agent.example.com');
- * orchestrator.registerAgent('weather', 'https://weather-agent.example.com');
+ * orchestrator.registerAgent('finance', 'http://localhost:8001');
+ * orchestrator.registerAgent('market-scanner', 'https://scanner-agent.example.com');
  *
  * // Run multi-agent workflow
  * const result = await orchestrator.runWorkflow([
- *   { agent: 'weather', message: '오늘 서울 날씨는?' },
- *   { agent: 'calendar', message: '내일 일정 확인해줘', dependsOn: ['step_0'] },
+ *   { agent: 'finance', message: 'BTC 현재가 및 기술 분석' },
+ *   { agent: 'market-scanner', message: '고확률 예측 마켓 스캔', dependsOn: ['step_0'] },
  * ]);
  * ```
  */

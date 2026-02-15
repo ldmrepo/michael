@@ -1,21 +1,19 @@
 # 마이클 (Michael)
 
-> 항상 깨어있고, 모든 것을 기억하는 개인 AI 어시스턴트
+> 24시간 깨어있는 AI 자산관리 전문가 — "눈덩이 굴리기(Snowball)"
 
 ## 특징
 
-- 🌙 **24시간 깨어있기**: pm2/launchd 데몬으로 항상 실행
-- 🧠 **영구 메모리**: 모든 대화와 정보를 기억 (SQLite + 벡터 검색)
-- 💬 **멀티 채널**: Telegram, 웹 채팅, REST API 지원
-- 📱 **Mini App**: Telegram Mini App으로 복잡한 폼 입력 지원
-- ⏰ **능동적 알림**: 스케줄에 따라 먼저 알림 전송
-- 🤖 **Claude Code 기반**: Claude Code CLI 사용 (API 키 불필요)
-- 🔍 **시맨틱 검색**: 벡터 임베딩으로 관련 대화 자동 검색
 - 💰 **투자 서비스**: Binance 포트폴리오 자동 모니터링 (14개 cron job + Telegram 알림)
 - 🎯 **예측 마켓**: Polymarket 자동 모니터링 (가격 추적, 고확률 스캔, 차익거래 감지)
 - 📊 **실시간 금융 데이터**: 주식, 암호화폐, 환율 조회 (yfinance, CoinGecko)
-- 🧘 **명상 생성기**: 맞춤형 명상 스크립트 생성 및 TTS 음성 변환 (OpenAI TTS)
-- 🎬 **비디오 생성**: ComfyUI + Wan2.2 I2V 기반 YouTube Shorts 자동 생성
+- 📰 **투자 뉴스**: 시장 뉴스 자동 브리핑
+- 🐦 **시장 심리**: X(Twitter) 소셜 분석
+- 🌙 **24시간 모니터링**: pm2/launchd 데몬으로 항상 실행
+- 🧠 **영구 메모리**: 모든 대화와 투자 정보를 기억 (SQLite + 벡터 검색)
+- 💬 **멀티 채널**: Telegram, 웹 채팅, REST API 지원
+- ⏰ **능동적 알림**: 가격 변동, 기회 포착 시 즉시 알림
+- 🤖 **Claude Code 기반**: Claude Code CLI 사용 (API 키 불필요)
 
 ## 중요: Claude Max vs Anthropic API
 
@@ -30,33 +28,17 @@
 ## 아키텍처
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                       Frontend :3001                         │
-│                    (Next.js + A2UI Renderer)                 │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ /api/chat/stream (SSE)
-┌──────────────────────────▼──────────────────────────────────┐
-│                    HTTP Server :3000                         │
-│  /webapp/* (Mini App)  /api/chat/*  /api/webapp/*  /health  │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────────┐
-│                 Gateway (WebSocket) :18789                   │
-└───┬─────────┬──────────┬──────────┬──────────┬──────────────┘
-    │         │          │          │          │
-┌───▼───┐ ┌──▼─────┐ ┌──▼────┐ ┌──▼─────┐ ┌──▼──────────────┐
-│Telegram│ │ Claude │ │Memory │ │Schedule│ │  Services       │
-│Channel │ │ Agent  │ │(SQLite│ │r(Cron) │ │  ├─Investment   │
-└────────┘ └────────┘ │+Vec)  │ └────────┘ │  └─Prediction  │
-                      └───────┘            │    Market      │
-                                           └─────────────────┘
-
-┌─────────────────────────────────────────────────────────────┐
-│                 Finance Agent :8001 (A2A)                    │
-│  yfinance (주식)  │  CoinGecko (암호화폐)  │  환율 API       │
-└─────────────────────────────────────────────────────────────┘
-
-ngrok tunnel (HTTPS) ─────► localhost:3000 (Mini App, A2A)
+┌──────────────────────────────────────────────────────────────┐
+│                 Gateway (WebSocket) :18789                    │
+└───┬──────────┬──────────┬──────────┬──────────┬──────────────┘
+    │          │          │          │          │
+┌───▼────┐ ┌──▼──────┐ ┌─▼──────┐ ┌▼────────┐ ┌▼───────────────┐
+│Telegram│ │ Claude  │ │Memory  │ │Scheduler│ │  Services      │
+│Channel │ │ Agent   │ │(SQLite │ │ (Cron)  │ │  ├─Investment  │
+└────────┘ └─────────┘ │+Vec)   │ └─────────┘ │  ├─Prediction │
+                       └────────┘              │  │  Market    │
+                                               │  └─Finance   │
+                                               └────────────────┘
 ```
 
 ## 설치
@@ -64,12 +46,6 @@ ngrok tunnel (HTTPS) ─────► localhost:3000 (Mini App, A2A)
 ```bash
 # 백엔드 의존성 설치
 pnpm install
-
-# 웹 프론트엔드 빌드
-cd frontend && pnpm install && pnpm build && cd ..
-
-# Telegram Mini App 빌드 (선택)
-cd ui/telegram-mini-app && pnpm install && pnpm build && cd ../..
 
 # Python 의존성 (금융 데이터용)
 pip3 install yfinance
@@ -119,37 +95,26 @@ ALPHA_VANTAGE_API_KEY=<무료 API 키>
 # 터미널 1: 백엔드 실행
 pnpm dev
 
-# 터미널 2: 웹 프론트엔드 실행
-cd frontend && pnpm dev
-
-# 터미널 3: Finance Agent (선택)
+# 터미널 2: Finance Agent (선택)
 pnpm dev:finance
-
-# 터미널 4: ngrok (Mini App HTTPS용, 선택)
-ngrok http --url=your-domain.ngrok-free.dev 3000
 ```
 
 ### 서비스 포트
 
 | 서비스 | 포트 | 설명 |
 |--------|------|------|
-| Frontend | 3001 | 웹 채팅 UI (Next.js) |
-| HTTP Server | 3000 | REST API, Mini App |
+| HTTP Server | 3000 | REST API |
 | Gateway | 18789 | WebSocket 허브 |
 | Finance Agent | 8001 | A2A 금융 에이전트 |
 
 ### 프로덕션 빌드
 
 ```bash
-# TypeScript 빌드 (백엔드)
+# TypeScript 빌드
 pnpm build
-
-# 프론트엔드 빌드
-cd frontend && pnpm build && cd ..
 
 # 빌드된 파일 실행
 pnpm start
-cd frontend && pnpm start  # 별도 터미널
 ```
 
 ### 데몬 모드 (24시간 실행)
@@ -210,24 +175,18 @@ michael/
 ├── scripts/
 │   ├── finance/        # 금융 API 스크립트 (yfinance, CoinGecko)
 │   └── youtube-shorts/ # ComfyUI 비디오 생성
-├── frontend/           # 웹 프론트엔드 (Next.js)
-│   ├── app/            # Next.js App Router
-│   ├── components/a2ui/# A2UI 컴포넌트 렌더러
-│   └── lib/agui/       # AG-UI 클라이언트 라이브러리
 ├── ui/
 │   └── telegram-mini-app/  # Telegram Mini App (React)
 ├── .claude/
-│   └── skills/         # Claude Code 스킬 (25개)
+│   └── skills/         # Claude Code 스킬 (16개 - 자산관리 특화)
 │       ├── investment/           # Binance 투자 (hub)
 │       ├── binance-*/            # Binance 세부 (analytics, futures, bots, copy-trading)
 │       ├── prediction-market/    # Polymarket
 │       ├── finance/              # 주식/코인/환율
-│       ├── calendar/             # Google Calendar
-│       ├── gmail-integration/    # Gmail
-│       ├── kakaotalk-chatbot/    # KakaoTalk Open Builder
-│       ├── meditation/           # 명상 생성
-│       ├── youtube-shorts/       # YouTube Shorts
-│       └── ...                   # weather, news, maps, x, notebooklm 등
+│       ├── crypto-investment-sources/ # 투자 정보 소스
+│       ├── news/                 # 투자 뉴스 브리핑
+│       ├── x/                    # 시장 심리 분석 (Twitter)
+│       └── ...                   # a2a, a2ui, agui, claude-docs, LSP 도구
 ├── data/
 │   ├── memory.db       # 메인 DB (users, messages, facts, schedules)
 │   └── memory-index.db # 벡터 인덱스 DB (embeddings, chunks)
@@ -260,34 +219,11 @@ INTEGRATION_TESTS=true pnpm vitest run src/brain/memory.integration.test.ts
 ```
 /start - 시작
 /help - 도움말
-/form - 예약 폼 열기 (Mini App 테스트)
-"안녕 마이클" - 자연어 대화
-"내 생일은 3월 15일이야" - 정보 기억
-"매일 9시에 알려줘" - 스케줄 설정
+"비트코인 현재가" - 시세 조회
+"포트폴리오 현황" - Binance 포트폴리오
+"PM 브리핑" - Polymarket 포지션 요약
+"매일 9시에 브리핑 보내줘" - 스케줄 설정
 ```
-
-### 명상 생성 예시
-
-```
-"5분 수면 명상 만들어줘"
-"집중력 향상 3분 명상"
-"스트레스 해소 명상 10분"
-"아침 명상 5분"
-```
-
-**지원하는 명상 유형:**
-
-| 유형 | 설명 |
-|------|------|
-| 수면 (sleep) | 깊은 수면을 위한 릴렉싱 가이드 |
-| 집중 (focus) | 업무/학습 집중력 향상 |
-| 스트레스 (stress) | 긴장 완화 및 마음 진정 |
-| 아침 (morning) | 하루 시작을 위한 에너지 충전 |
-| 마음챙김 (mindfulness) | 현재 순간에 집중 |
-
-**시간 옵션:** 3분, 5분, 10분
-
-**TTS 음성:** nova (기본, 차분한 여성), shimmer, onyx, alloy
 
 ### 투자 서비스 (Telegram 자동 알림)
 
@@ -339,17 +275,6 @@ Binance API 키와 Polymarket이 설정되면 자동으로 모니터링이 시�
 3. Mini App에서 폼 작성
 4. "예약하기" 버튼 클릭
 5. 봇이 제출된 데이터 수신
-
-### 웹 프론트엔드로 사용하기
-
-1. 백엔드 실행: `pnpm dev`
-2. 프론트엔드 실행: `cd frontend && pnpm dev`
-3. 브라우저에서 http://localhost:3001 접속
-4. 채팅창에 메시지 입력
-
-**AG-UI 프로토콜 지원:**
-- 실시간 스트리밍 응답
-- A2UI 동적 UI 렌더링 (카드, 버튼, 폼 등)
 
 ### WebSocket으로 직접 연결
 
@@ -405,29 +330,29 @@ curl -X POST http://localhost:8001/ \
 
 ## 로드맵
 
-### 완료
+### 인프라 (완료)
 
-- [x] Phase 1: Memory System (SQLite + FTS5)
-- [x] Phase 2: Gateway Server (WebSocket)
-- [x] Phase 3: Claude Code Agent (CLI)
-- [x] Phase 4: Telegram 통합 (Telegraf)
-- [x] Phase 5: Scheduler (node-cron)
-- [x] Phase 6: 데몬화 (launchd)
-- [x] Phase 7: 벡터 검색 통합
-- [x] Phase 8-12: HTTP Server + Mini App
-- [x] Phase 13: 웹 프론트엔드 통합 (Next.js + AG-UI + A2UI)
-- [x] Phase 14: Finance Agent (실시간 금융 데이터)
-- [x] Phase 15: Meditation Generator (명상 스크립트 + OpenAI TTS)
-- [x] Phase 16: Investment Service (Binance 포트폴리오 자동 모니터링)
-- [x] Phase 17: Prediction Market (Polymarket 자동 모니터링 + 알림)
-- [x] Phase 18: Video Generation (ComfyUI + Wan2.2 I2V, Lightning LoRA)
+- [x] Memory System (SQLite + FTS5 + 벡터 검색)
+- [x] Gateway Server (WebSocket) + HTTP Server
+- [x] Claude Code Agent (CLI) + Scheduler (node-cron)
+- [x] Telegram 통합 + 웹 프론트엔드 (Next.js + AG-UI + A2UI)
+- [x] 데몬화 (launchd/pm2)
+- [x] A2A 프로토콜 (멀티 에이전트)
+
+### 자산관리 (완료)
+
+- [x] Finance Agent (실시간 금융 데이터 - yfinance, CoinGecko)
+- [x] Investment Service (Binance 포트폴리오 자동 모니터링)
+- [x] Prediction Market (Polymarket 자동 모니터링 + 알림)
+- [x] 범용 비서 → 자산관리 전문가 전환
 
 ### 진행 예정
 
-- [ ] A2A Orchestrator 연동 (Finance Agent ↔ 메인 Agent)
+- [ ] PM 자동 거래 실행 자동화
+- [ ] Binance Futures 자동 전략 실행
+- [ ] 포트폴리오 리밸런싱 엔진
+- [ ] 크로스 플랫폼 차익거래 (PM ↔ Binance)
 - [ ] 프로덕션 배포 (실제 도메인 + SSL)
-- [ ] 추가 채널 지원 (Slack, Discord)
-- [ ] PM 자동 거래 (블록체인 거래 실행 자동화)
 
 ## 문서
 

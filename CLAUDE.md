@@ -4,12 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Origin
 
-기존 AI는 **요청할 때만 반응**한다. 사용자가 원하는 것은 그 한계를 넘는 것이다:
-- 모든 대화와 정보를 **기억**하고
-- 필요한 시점에 **스스로 행동**하고 조언하며
-- Telegram/Slack 같은 채널을 통해 **능동적으로 알려주고 대화**하는 동반자
+**"눈덩이 굴리기(Snowball)"** — 소액 자본을 체계적으로 불려나가는 자산관리 시스템.
 
-쇼핑, 예약, 건강체크, 스케줄, 코딩, 투자 등 다양한 영역에서 스스로 판단하고 행동할 수 있는 **24시간 깨어있는 개인 AI 어시스턴트**를 목표로 한다.
+기존 AI는 요청할 때만 반응하지만, 마이클은:
+- 시장 데이터를 **24시간 모니터링**하고
+- 투자 기회를 **능동적으로 포착**하여 알리며
+- Telegram을 통해 **실시간 브리핑과 거래 실행**을 지원하는 투자 동반자
+
+자산관리 및 투자 전략 실행에 특화된 **24시간 깨어있는 AI 자산관리 전문가**를 목표로 한다.
 
 Moltbot(https://github.com/moltbot/moltbot) 프로젝트를 참고하여 뼈대를 구축했고, 친근한 이름으로 **마이클(Michael)**을 선택했다.
 
@@ -17,7 +19,7 @@ Moltbot(https://github.com/moltbot/moltbot) 프로젝트를 참고하여 뼈대�
 
 ## Project Overview
 
-**마이클 (Michael)** is a 24/7 personal AI assistant that remembers everything and proactively helps users through Telegram messaging.
+**마이클 (Michael)** is a 24/7 asset management specialist that monitors markets, executes investment strategies, and proactively alerts users through Telegram messaging.
 
 ### Core Architecture
 
@@ -270,9 +272,9 @@ INTEGRATION_TESTS=true pnpm vitest run src/brain/memory.integration.test.ts
 5. **Don't skip cron.validate()** - invalid expressions crash node-cron
 6. **Don't assume Telegram is always available** - check `TELEGRAM_BOT_TOKEN` before starting
 
-## Project Phases (All Complete)
+## Project Phases
 
-### Core System
+### Infrastructure (Complete)
 - [x] Phase 1: Memory System (SQLite + FTS5)
 - [x] Phase 2: Gateway Server (WebSocket)
 - [x] Phase 3: Claude Code Agent (CLI integration)
@@ -281,12 +283,18 @@ INTEGRATION_TESTS=true pnpm vitest run src/brain/memory.integration.test.ts
 - [x] Phase 6: Daemon deployment (launchd for macOS)
 - [x] Phase 7: Vector Search (Moltbot integration) - Semantic memory retrieval
 
-### Protocol Integration (AG-UI / A2UI / A2A)
-- [x] Phase 8: AG-UI Event Streaming - Real-time event streaming for all channels
-- [x] Phase 9: Web Channel + A2UI - Web chat interface with A2UI full rendering
-- [x] Phase 10: Telegram Adaptive Renderer - A2UI → Telegram native mapping
-- [x] Phase 11: Telegram Web App - Mini App for complex A2UI forms
-- [x] Phase 12: A2A Multi-agent - Agent-to-agent protocol for external agent collaboration
+### Protocol Integration (Complete)
+- [x] Phase 8-12: AG-UI, A2UI, A2A protocols
+
+### Asset Management (Current Focus)
+- [x] Binance 포트폴리오 자동 모니터링 (14개 cron job + Telegram 알림)
+- [x] Polymarket 예측 마켓 모니터링 (가격 추적, 고확률 스캔, 차익거래)
+- [x] Finance Agent (주식/코인/환율 A2A 서비스)
+- [x] 범용 비서 → 자산관리 전문가 전환 (스킬 정리, 문서 업데이트)
+- [ ] PM 자동 거래 실행 자동화
+- [ ] Binance Futures 자동 전략 실행
+- [ ] 포트폴리오 리밸런싱 엔진
+- [ ] 크로스 플랫폼 차익거래 (PM ↔ Binance)
 
 ## Protocol Integration
 
@@ -330,9 +338,11 @@ const response = await client.chat('https://other-agent.example.com', 'Hello!');
 
 // Orchestrator (multi-agent workflow)
 const orchestrator = new A2AOrchestrator();
-orchestrator.registerAgent('calendar', 'https://calendar-agent.example.com');
+orchestrator.registerAgent('finance', 'http://localhost:8001');
+orchestrator.registerAgent('market-scanner', 'https://scanner-agent.example.com');
 const result = await orchestrator.runWorkflow([
-  { agent: 'calendar', message: '내일 일정 확인해줘' },
+  { agent: 'finance', message: 'BTC 현재가 및 기술 분석' },
+  { agent: 'market-scanner', message: '고확률 예측 마켓 스캔', dependsOn: ['step_0'] },
 ]);
 ```
 
