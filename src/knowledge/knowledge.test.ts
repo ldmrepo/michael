@@ -1,6 +1,6 @@
 /**
  * Knowledge Service (NLM) Tests
- * NLM CLI mock으로 nlm-client + knowledge-sync 검증
+ * NLM CLI mock으로 nlm-client + knowledge-sync + knowledge-manager 검증
  *
  * 실제 CLI 커맨드 참조: https://github.com/jacob-bd/notebooklm-mcp-cli
  *   nlm notebook query <id> "question"
@@ -8,6 +8,11 @@
  *   nlm source add <id> --file <path> --wait
  *   nlm source list <id> [--json]
  *   nlm source delete <id> --confirm
+ *   nlm describe notebook <id>
+ *   nlm note create <id> --title "..." --content "..."
+ *   nlm note list <id> --json
+ *   nlm note update <id> <note_id> --content "..."
+ *   nlm note delete <id> <note_id> --confirm
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -180,6 +185,139 @@ describe('NlmClient', () => {
       expect(mockedExecFile).toHaveBeenCalledWith(
         'nlm',
         ['source', 'delete', 'source-abc', '--confirm'],
+        expect.any(Object),
+        expect.any(Function),
+      );
+    });
+  });
+
+  describe('describeNotebook', () => {
+    it('parses JSON response with value.summary array', async () => {
+      const response = JSON.stringify({
+        value: {
+          summary: ['이 노트북은 BTC 시장 분석을 다룹니다.', '주요 패턴을 기록합니다.'],
+          suggested_topics: ['BTC 기술 분석', '리스크 관리'],
+        },
+      });
+      mockExecSuccess(response);
+      const client = new NlmClient(NOTEBOOK_ID);
+      const result = await client.describeNotebook();
+      expect(result.summary).toBe('이 노트북은 BTC 시장 분석을 다룹니다.\n주요 패턴을 기록합니다.');
+      expect(result.topics).toEqual(['BTC 기술 분석', '리스크 관리']);
+      expect(mockedExecFile).toHaveBeenCalledWith(
+        'nlm',
+        ['describe', 'notebook', NOTEBOOK_ID],
+        expect.any(Object),
+        expect.any(Function),
+      );
+    });
+
+    it('returns raw text as summary when response is not JSON', async () => {
+      mockExecSuccess('Some raw description');
+      const client = new NlmClient(NOTEBOOK_ID);
+      const result = await client.describeNotebook();
+      expect(result.summary).toBe('Some raw description');
+      expect(result.topics).toEqual([]);
+    });
+
+    it('handles empty summary and topics', async () => {
+      mockExecSuccess(JSON.stringify({ value: {} }));
+      const client = new NlmClient(NOTEBOOK_ID);
+      const result = await client.describeNotebook();
+      expect(result.summary).toBe('');
+      expect(result.topics).toEqual([]);
+    });
+  });
+
+  describe('noteCreate', () => {
+    it('calls nlm note create with --title and --content', async () => {
+      mockExecSuccess('✓ Created note\n  ID: aaaa1111-2222-3333-4444-555566667777');
+      const client = new NlmClient(NOTEBOOK_ID);
+      const noteId = await client.noteCreate('Test Note', 'Note content');
+      expect(noteId).toBe('aaaa1111-2222-3333-4444-555566667777');
+      expect(mockedExecFile).toHaveBeenCalledWith(
+        'nlm',
+        ['note', 'create', NOTEBOOK_ID, '--title', 'Test Note', '--content', 'Note content'],
+        expect.any(Object),
+        expect.any(Function),
+      );
+    });
+
+    it('returns raw output when no UUID found', async () => {
+      mockExecSuccess('Note created without UUID');
+      const client = new NlmClient(NOTEBOOK_ID);
+      const result = await client.noteCreate('Title', 'Content');
+      expect(result).toBe('Note created without UUID');
+    });
+  });
+
+  describe('noteList', () => {
+    it('parses JSON note list from notes field', async () => {
+      const response = JSON.stringify({
+        notebook_id: NOTEBOOK_ID,
+        notes: [
+          { id: 'n1', title: 'Note A' },
+          { id: 'n2', title: 'Note B' },
+        ],
+        count: 2,
+      });
+      mockExecSuccess(response);
+      const client = new NlmClient(NOTEBOOK_ID);
+      const result = await client.noteList();
+      expect(result).toEqual([
+        { id: 'n1', title: 'Note A' },
+        { id: 'n2', title: 'Note B' },
+      ]);
+      expect(mockedExecFile).toHaveBeenCalledWith(
+        'nlm',
+        ['note', 'list', NOTEBOOK_ID, '--json'],
+        expect.any(Object),
+        expect.any(Function),
+      );
+    });
+
+    it('returns empty array on invalid JSON', async () => {
+      mockExecSuccess('not json');
+      const client = new NlmClient(NOTEBOOK_ID);
+      const result = await client.noteList();
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('noteUpdate', () => {
+    it('calls nlm note update with --content', async () => {
+      mockExecSuccess('Note updated');
+      const client = new NlmClient(NOTEBOOK_ID);
+      await client.noteUpdate('note-123', 'Updated content');
+      expect(mockedExecFile).toHaveBeenCalledWith(
+        'nlm',
+        ['note', 'update', NOTEBOOK_ID, 'note-123', '--content', 'Updated content'],
+        expect.any(Object),
+        expect.any(Function),
+      );
+    });
+
+    it('includes --title when provided', async () => {
+      mockExecSuccess('Note updated');
+      const client = new NlmClient(NOTEBOOK_ID);
+      await client.noteUpdate('note-123', 'Content', 'New Title');
+      expect(mockedExecFile).toHaveBeenCalledWith(
+        'nlm',
+        ['note', 'update', NOTEBOOK_ID, 'note-123', '--content', 'Content', '--title', 'New Title'],
+        expect.any(Object),
+        expect.any(Function),
+      );
+    });
+  });
+
+  describe('noteDelete', () => {
+    it('calls nlm note delete with --confirm', async () => {
+      mockExecSuccess('Note deleted');
+      const client = new NlmClient(NOTEBOOK_ID);
+      await client.noteDelete('note-123');
+      expect(mockedExecFile).toHaveBeenCalledWith(
+        'nlm',
+        ['note', 'delete', NOTEBOOK_ID, 'note-123', '--confirm'],
         expect.any(Object),
         expect.any(Function),
       );
@@ -372,6 +510,205 @@ describe('KnowledgeManager', () => {
       const content = readFileSync(join(MANAGER_DIR, 'nlm-notebooks.json'), 'utf-8');
       expect(JSON.parse(content).market.notebookId).toBe('dddd1111-2222-3333-4444-555566667777');
     });
+  });
+
+  describe('getOutline', () => {
+    it('fetches outline on first call and caches it', async () => {
+      // Pre-populate registry so getClient doesn't call `notebook create`
+      writeFileSync(join(MANAGER_DIR, 'nlm-notebooks.json'), JSON.stringify({
+        market_data: {
+          notebookId: 'eeee1111-2222-3333-4444-555566667777',
+          title: 'Michael: market_data',
+          createdAt: '2026-02-15T00:00:00Z',
+        },
+      }));
+
+      const describeResponse = JSON.stringify({
+        value: {
+          summary: ['BTC 분석 노트북'],
+          suggested_topics: ['기술 분석', '리스크'],
+        },
+      });
+      mockExecSuccess(describeResponse);
+
+      const km = new KnowledgeManager(MANAGER_DIR);
+      const outline = await km.getOutline('market_data');
+
+      expect(outline).not.toBeNull();
+      expect(outline!.summary).toBe('BTC 분석 노트북');
+      expect(outline!.topics).toEqual(['기술 분석', '리스크']);
+
+      // Second call should use cache (no new CLI call)
+      vi.clearAllMocks();
+      const cached = await km.getOutline('market_data');
+      expect(cached).toEqual(outline);
+      expect(mockedExecFile).not.toHaveBeenCalled();
+    });
+
+    it('returns stale data on error', async () => {
+      writeFileSync(join(MANAGER_DIR, 'nlm-notebooks.json'), JSON.stringify({
+        test_agent: {
+          notebookId: 'ffff1111-2222-3333-4444-555566667777',
+          title: 'Michael: test_agent',
+          createdAt: '2026-02-15T00:00:00Z',
+        },
+      }));
+
+      // First call succeeds
+      mockExecSuccess(JSON.stringify({
+        value: { summary: ['Old data'], suggested_topics: ['topic'] },
+      }));
+
+      const km = new KnowledgeManager(MANAGER_DIR);
+      await km.getOutline('test_agent');
+
+      // Invalidate to force refetch
+      km.invalidateOutline('test_agent');
+
+      // Re-fetch fails
+      mockExecFailure('network error');
+      const stale = await km.getOutline('test_agent');
+      // Should return null because cache was invalidated and refetch failed
+      expect(stale).toBeNull();
+    });
+
+    it('invalidateOutline clears cache', async () => {
+      writeFileSync(join(MANAGER_DIR, 'nlm-notebooks.json'), JSON.stringify({
+        test: {
+          notebookId: 'gggg1111-2222-3333-4444-555566667777',
+          title: 'Michael: test',
+          createdAt: '',
+        },
+      }));
+
+      mockExecSuccess(JSON.stringify({
+        value: { summary: ['Data'], suggested_topics: [] },
+      }));
+
+      const km = new KnowledgeManager(MANAGER_DIR);
+      await km.getOutline('test');
+      km.invalidateOutline('test');
+
+      // Next call should hit CLI again
+      vi.clearAllMocks();
+      mockExecSuccess(JSON.stringify({
+        value: { summary: ['Fresh data'], suggested_topics: [] },
+      }));
+      const fresh = await km.getOutline('test');
+      expect(fresh!.summary).toBe('Fresh data');
+      expect(mockedExecFile).toHaveBeenCalled();
+    });
+  });
+});
+
+describe('KnowledgeSync.syncDecisionOutcome', () => {
+  const OUTCOME_DIR = `test-outcome-${process.pid}`;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mkdirSync(OUTCOME_DIR, { recursive: true });
+    // Pre-populate registry for KnowledgeManager
+    writeFileSync(join(OUTCOME_DIR, 'nlm-notebooks.json'), JSON.stringify({
+      binance_trader: {
+        notebookId: 'bt-notebook-id',
+        title: 'Michael: binance_trader',
+        createdAt: '',
+      },
+      pm_trader: {
+        notebookId: 'pm-notebook-id',
+        title: 'Michael: pm_trader',
+        createdAt: '',
+      },
+    }));
+  });
+
+  afterEach(() => {
+    rmSync(OUTCOME_DIR, { recursive: true, force: true });
+  });
+
+  it('creates note in binance_trader notebook for binance_spot decision', async () => {
+    mockExecSuccess('Note created: note-id-123');
+    const nlm = new NlmClient('judgment-notebook');
+    const sync = new KnowledgeSync(nlm, OUTCOME_DIR);
+    const km = new KnowledgeManager(OUTCOME_DIR);
+
+    const decision: Decision = {
+      ...mockDecision,
+      status: 'executed',
+      platform: 'binance_spot',
+    };
+
+    await sync.syncDecisionOutcome(decision, km);
+
+    // Should call note create on binance_trader's notebook
+    expect(mockedExecFile).toHaveBeenCalledWith(
+      'nlm',
+      expect.arrayContaining(['note', 'create', 'bt-notebook-id']),
+      expect.any(Object),
+      expect.any(Function),
+    );
+
+    const callArgs = mockedExecFile.mock.calls[0][1] as string[];
+    const titleIdx = callArgs.indexOf('--title');
+    expect(callArgs[titleIdx + 1]).toContain('[SUCCESS]');
+    expect(callArgs[titleIdx + 1]).toContain('BUY BTC');
+  });
+
+  it('creates note in pm_trader notebook for polymarket decision', async () => {
+    mockExecSuccess('Note created');
+    const nlm = new NlmClient('judgment-notebook');
+    const sync = new KnowledgeSync(nlm, OUTCOME_DIR);
+    const km = new KnowledgeManager(OUTCOME_DIR);
+
+    const decision: Decision = {
+      ...mockDecision,
+      platform: 'polymarket',
+      status: 'rejected',
+      target: 'BTC-50K-YES',
+    };
+
+    await sync.syncDecisionOutcome(decision, km);
+
+    expect(mockedExecFile).toHaveBeenCalledWith(
+      'nlm',
+      expect.arrayContaining(['note', 'create', 'pm-notebook-id']),
+      expect.any(Object),
+      expect.any(Function),
+    );
+
+    const callArgs = mockedExecFile.mock.calls[0][1] as string[];
+    const titleIdx = callArgs.indexOf('--title');
+    expect(callArgs[titleIdx + 1]).toContain('[FAIL]');
+  });
+
+  it('skips when platform is unknown', async () => {
+    const nlm = new NlmClient('judgment-notebook');
+    const sync = new KnowledgeSync(nlm, OUTCOME_DIR);
+    const km = new KnowledgeManager(OUTCOME_DIR);
+
+    const decision: Decision = {
+      ...mockDecision,
+      platform: 'unknown_platform',
+    };
+
+    await sync.syncDecisionOutcome(decision, km);
+    expect(mockedExecFile).not.toHaveBeenCalled();
+  });
+
+  it('handles note creation failure gracefully', async () => {
+    mockExecFailure('API error');
+    const nlm = new NlmClient('judgment-notebook');
+    const sync = new KnowledgeSync(nlm, OUTCOME_DIR);
+    const km = new KnowledgeManager(OUTCOME_DIR);
+
+    const decision: Decision = {
+      ...mockDecision,
+      status: 'executed',
+      platform: 'binance_spot',
+    };
+
+    // Should not throw
+    await sync.syncDecisionOutcome(decision, km);
   });
 });
 
