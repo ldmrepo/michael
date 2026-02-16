@@ -4,6 +4,8 @@ import { join } from 'path';
 import { Memory, Message, Schedule } from '../brain/memory.js';
 import { Scheduler } from '../scheduler/cron.js';
 import { log } from '../utils/logger.js';
+import type { KnowledgeManager } from '../knowledge/knowledge-manager.js';
+import type { NlmClient } from '../knowledge/nlm-client.js';
 
 /**
  * 벡터 검색 결과 타입 (Message + 점수)
@@ -37,6 +39,16 @@ export interface A2UIAgentMessage {
 }
 
 /**
+ * 컨텍스트 로드 결과
+ */
+interface LoadedContext {
+  recentMessages: Message[];
+  relatedMessages: VectorSearchResult[];
+  facts: Record<string, string>;
+  schedules: Schedule[];
+}
+
+/**
  * 스트리밍 콜백 인터페이스 (AG-UI 프로토콜)
  */
 export interface StreamingCallbacks {
@@ -58,6 +70,7 @@ export class ClaudeCodeAgent {
   private memory: Memory;
   private scheduler: Scheduler | null = null;
   private activeProcesses: Set<ChildProcess> = new Set();
+  private nlmClient: NlmClient | null = null;
 
   constructor(memory: Memory) {
     this.memory = memory;
@@ -72,6 +85,14 @@ export class ClaudeCodeAgent {
   }
 
   /**
+   * NLM (세컨드 브레인) 연결
+   */
+  setKnowledge(_km: KnowledgeManager, nlmClient: NlmClient): void {
+    this.nlmClient = nlmClient;
+    log('info', '🧠 NLM connected to Agent');
+  }
+
+  /**
    * 사용자와 대화
    */
   async chat(
@@ -83,14 +104,17 @@ export class ClaudeCodeAgent {
       // 1. 메모리에서 컨텍스트 로드 (벡터 검색 포함)
       const context = await this.loadContext(userId, message);
 
-      // 2. 프롬프트 구성
-      const prompt = this.buildPrompt(message, context);
+      // 2. NLM 세컨드 브레인 조회 (관련 경험/교훈)
+      const nlmContext = await this.queryNlm(message);
 
-      // 3. Claude Code CLI 실행 (비대화형 모드에서는 권한 프롬프트 건너뛰기)
+      // 3. 프롬프트 구성
+      const prompt = this.buildPrompt(message, context, nlmContext);
+
+      // 4. Claude Code CLI 실행 (비대화형 모드에서는 권한 프롬프트 건너뛰기)
       const cliOptions = { skipPermissions: true, ...options };
       const response = await this.executeClaudeCode(prompt, cliOptions);
 
-      // 4. 응답 파싱 및 메모리 저장
+      // 5. 응답 파싱 및 메모리 저장
       await this.processResponse(userId, message, response);
 
       return response;
@@ -109,12 +133,7 @@ export class ClaudeCodeAgent {
   private async loadContext(
     userId: string,
     currentMessage?: string
-  ): Promise<{
-    recentMessages: Message[];
-    relatedMessages: VectorSearchResult[];
-    facts: Record<string, string>;
-    schedules: Schedule[];
-  }> {
+  ): Promise<LoadedContext> {
     const [recentMessages, facts, schedules] = await Promise.all([
       this.memory.getRecentMessages(userId, 5),
       this.memory.getAllFacts(userId),
@@ -165,12 +184,8 @@ export class ClaudeCodeAgent {
    */
   private buildPrompt(
     message: string,
-    context: {
-      recentMessages: Message[];
-      relatedMessages: VectorSearchResult[];
-      facts: Record<string, string>;
-      schedules: Schedule[];
-    }
+    context: LoadedContext,
+    nlmContext?: string,
   ): string {
     const factsText = Object.entries(context.facts)
       .map(([key, value]) => `- ${key}: ${value}`)
@@ -233,6 +248,18 @@ You MUST use Telegram-compatible Markdown format:
 - NO tables - use simple lists instead
 - NO horizontal rules (---)
 Keep responses concise and mobile-friendly.
+
+## 자율 도구 관리 (Autonomous Tool Management)
+You are Michael, an autonomous asset management AI. You have access to Binance and Polymarket APIs.
+When portfolio/position/trading questions arise, use your skills (binance, polymarket) to write and execute
+scripts directly. You can create new skills with [CREATE_SKILL:] when needed.
+${nlmContext ? `
+## 세컨드 브레인 (Past Experience & Lessons)
+${nlmContext}
+` : ''}
+## 학습 기록 (Learning)
+When you discover something important (API quirks, best practices, errors to avoid),
+record it with [LESSON:title:content] marker. This will be saved to your knowledge base.
 
 ## Self-Modifying: Skill Creation
 When the user asks to create a new feature/skill, generate a skill file using this marker:
@@ -507,6 +534,20 @@ Please respond to the user's message:
       callbacks.onA2UI(a2uiMessages);
     }
 
+    // [LESSON:] 마커 처리 — NLM에 학습 기록
+    const lessonMatches = response.matchAll(/\[LESSON:(.+?):(.+?)\]/g);
+    for (const match of lessonMatches) {
+      const [, title, content] = match;
+      if (this.nlmClient) {
+        try {
+          await this.nlmClient.noteCreate(title, content);
+          log('info', `🧠 Lesson saved: ${title}`);
+        } catch (e) {
+          log('warn', `⚠️ Failed to save lesson: ${e}`);
+        }
+      }
+    }
+
     // 모든 마커 제거
     const cleanResponse = response
       .replace(/\[FACT:\w+:.+?\]/g, '')
@@ -514,6 +555,8 @@ Please respond to the user's message:
       .replace(/\[SCHEDULE_ONCE:\d+:.+?\]/g, '')
       .replace(/\[CANCEL_SCHEDULE:.+?\]/g, '')
       .replace(/\[A2UI_(SURFACE|DATA):\w+\][\s\S]*?\[\/A2UI_\1\]/g, '')
+      .replace(/\[DECISION:[^\]]*\]/g, '')
+      .replace(/\[LESSON:.+?:.+?\]/g, '')
       .trim();
 
     // Assistant 응답 저장
@@ -533,10 +576,13 @@ Please respond to the user's message:
       // 1. 메모리에서 컨텍스트 로드 (벡터 검색 포함)
       const context = await this.loadContext(userId, message);
 
-      // 2. 프롬프트 구성
-      const prompt = this.buildPrompt(message, context);
+      // 2. NLM 세컨드 브레인 조회
+      const nlmContext = await this.queryNlm(message);
 
-      // 3. Claude Code CLI 실행 (스트리밍, 비대화형 모드에서는 권한 프롬프트 건너뛰기)
+      // 3. 프롬프트 구성
+      const prompt = this.buildPrompt(message, context, nlmContext);
+
+      // 4. Claude Code CLI 실행 (스트리밍, 비대화형 모드에서는 권한 프롬프트 건너뛰기)
       const cliOptions = { skipPermissions: true, ...options };
       const response = await this.executeClaudeCodeWithStreaming(
         prompt,
@@ -544,7 +590,7 @@ Please respond to the user's message:
         cliOptions
       );
 
-      // 4. 응답 파싱 및 메모리 저장 (콜백 전달로 A2UI 지원)
+      // 5. 응답 파싱 및 메모리 저장 (콜백 전달로 A2UI 지원)
       await this.processResponse(userId, message, response, callbacks);
 
       return response;
@@ -685,6 +731,22 @@ Please respond to the user's message:
     
     const prompt = `/${skillName} ${JSON.stringify(params)}`;
     return this.executeClaudeCode(prompt, {});
+  }
+
+  /**
+   * NLM 세컨드 브레인 조회 — 관련 경험/교훈 검색
+   */
+  private async queryNlm(message: string): Promise<string | undefined> {
+    if (!this.nlmClient) return undefined;
+
+    try {
+      const answer = await this.nlmClient.query(message);
+      if (!answer || answer.length === 0) return undefined;
+      return answer;
+    } catch (e) {
+      log('debug', `NLM query skipped: ${e}`);
+      return undefined;
+    }
   }
 
   /**

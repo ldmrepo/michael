@@ -6,9 +6,9 @@
 
 - 💰 **투자 서비스**: Binance 포트폴리오 자동 모니터링 (14개 cron job + Telegram 알림)
 - 🎯 **예측 마켓**: Polymarket 자동 모니터링 (가격 추적, 고확률 스캔, 차익거래 감지)
-- 📊 **실시간 금융 데이터**: 주식, 암호화폐, 환율 조회 (yfinance, CoinGecko)
+- 🧠 **전문가 팀**: 14개 AI 전문가 에이전트가 역할/지침/도구/지식을 갖추고 협업
+- 📊 **판단 사이클**: Gather Phase → State 갱신 → Claude 판단 → 승인 → 실행
 - 📰 **투자 뉴스**: 시장 뉴스 자동 브리핑
-- 🐦 **시장 심리**: X(Twitter) 소셜 분석
 - 🌙 **24시간 모니터링**: pm2/launchd 데몬으로 항상 실행
 - 🧠 **영구 메모리**: 모든 대화와 투자 정보를 기억 (SQLite + 벡터 검색)
 - 💬 **멀티 채널**: Telegram, 웹 채팅, REST API 지원
@@ -28,18 +28,58 @@
 ## 아키텍처
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                 Gateway (WebSocket) :18789                    │
-└───┬──────────┬──────────┬──────────┬──────────┬──────────────┘
-    │          │          │          │          │
-┌───▼────┐ ┌──▼──────┐ ┌─▼──────┐ ┌▼────────┐ ┌▼───────────────┐
-│Telegram│ │ Claude  │ │Memory  │ │Scheduler│ │  Services      │
-│Channel │ │ Agent   │ │(SQLite │ │ (Cron)  │ │  ├─Investment  │
-└────────┘ └─────────┘ │+Vec)   │ └─────────┘ │  ├─Prediction │
-                       └────────┘              │  │  Market    │
-                                               │  └─Finance   │
-                                               └────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Gateway (WebSocket) :18789                       │
+└──┬──────────┬──────────┬──────────┬──────────┬─────────────────────┘
+   │          │          │          │          │
+┌──▼───┐ ┌───▼─────┐ ┌──▼─────┐ ┌─▼───────┐ ┌▼──────────────────────┐
+│Tele- │ │ Claude  │ │Memory  │ │Scheduler│ │ Decision System       │
+│gram  │ │ Agent   │ │(SQLite │ │ (Cron)  │ │ ├─JudgmentCycle       │
+│      │ │         │ │+Vec)   │ │         │ │ ├─AgentRunner          │
+└──────┘ └─────────┘ └────────┘ └─────────┘ │ │  └─14 전문가 에이전트│
+                                             │ ├─StateStore (YAML)   │
+                                             │ ├─Sentinel (감시)     │
+                                             │ └─Knowledge (NLM)     │
+                                             └────────────────────────┘
 ```
+
+### 판단 사이클 흐름
+
+```
+cron trigger (morning/midday/evening/weekly/monthly)
+  │
+  ▼
+JudgmentCycle.runCycle()
+  ├─ 1. Mandate(위임장) 읽기
+  ├─ 2. ★ Gather Phase — 전문가 팀 소집
+  │     ├─ ROUTINE_AGENTS[routineType] → 소집 목록
+  │     ├─ AgentRunner: Python 스크립트 병렬 실행
+  │     └─ StatePopulator: 결과 → state.yaml / inputs.yaml 갱신
+  ├─ 3. State/Inputs 최신값 읽기
+  ├─ 4. Claude에게 판단 요청 (프롬프트)
+  ├─ 5. [DECISION:...] 마커 파싱
+  └─ 6. Telegram 승인 요청 → 사용자 승인 → 자동 실행
+```
+
+### 14개 전문가 에이전트
+
+| 팀 | 에이전트 | 역할 | 도구 |
+|----|----------|------|------|
+| **정보 수집** | 시장 데이터 수집가 | 크립토/전통 시장 가격·거래량 수집 | `collect_market.py`, `collect_binance_api.py` |
+| | 매크로 분석가 | 거시경제 지표 수집 (FRED) | `collect_macro.py` |
+| | 뉴스 수집가 | 투자 뉴스 수집·sentiment 분류 | `collect_news.py` |
+| | 온체인 분석가 | ETF 플로우, 고래 이동, 옵션 | `collect_etf_flows.py`, `collect_smart_money.py`, `collect_options.py`, `collect_defi.py` |
+| | PM 스캐너 | Polymarket 마켓 탐색·기회 발견 | `scan_markets.py`, `monitor_prices.py` |
+| **분석** | 기술 분석가 | 차트 패턴·기술 지표 분석 | `analyze.py` |
+| | 리스크 관리자 | 포트폴리오 위험 평가·경고 | `monitor_risk.py`, `monitor_prices.py` |
+| | PM 확률 분석가 | 예측시장 확률 추정·Kelly 계산 | `estimate_true_probability.py` |
+| | 포트폴리오 분석가 | 통합 NAV·배분 상태 평가 | `sync_balance.py`, `snapshot_nav.py` |
+| **실행** | Binance 트레이더 | Spot/Futures 주문 실행 | `execute_order.py` |
+| | PM 트레이더 | Polymarket CLOB 매수/매도 | `polymarket_client.py` |
+| | DCA 봇 | 정기 자동 매수 | `execute_dca.py` |
+| | 리밸런서 | 목표 자산배분 복원 | `execute_rebalance.py` |
+
+> 소셜 감시자 (X/Twitter)는 Playwright 인프라 별도 구축 필요 — 도구 미연결 상태
 
 ## 설치
 
@@ -159,37 +199,50 @@ bash scripts/uninstall-daemon.sh
 ```
 michael/
 ├── src/
-│   ├── core/           # Gateway, HTTP Server, SSE, AG-UI Events
-│   ├── brain/          # Memory (SQLite + 벡터 검색)
-│   ├── channels/       # Telegram, Web Channel
-│   ├── scheduler/      # Cron 스케줄러
-│   ├── agent/          # Claude Code Agent
-│   ├── investment/     # Binance 투자 모니터링 서비스
+│   ├── core/              # Gateway, HTTP Server, SSE, AG-UI Events
+│   ├── brain/             # Memory (SQLite + 벡터 검색)
+│   ├── channels/          # Telegram, Web Channel
+│   ├── scheduler/         # Cron 스케줄러
+│   ├── agent/             # Claude Code Agent
+│   ├── decision/          # 판단 시스템
+│   │   ├── agent-registry.ts    # 14개 전문가 에이전트 4요소 정의
+│   │   ├── routine-agents.ts    # 루틴별 소집 매핑
+│   │   ├── agent-runner.ts      # 스크립트 오케스트레이션 엔진
+│   │   ├── judgment-cycle.ts    # 5단계 판단 루프
+│   │   ├── judgment-prompt.ts   # 판단 프롬프트 빌더
+│   │   └── decision-executor.ts # 승인된 결정 실행기
+│   ├── state-store/       # YAML 기반 상태 관리
+│   │   ├── state-populator.ts   # Python 결과 → YAML 변환
+│   │   └── types.ts             # Mandate, State, Inputs, Decision 타입
+│   ├── sentinel/          # 실시간 감시 (가격 급변 등)
+│   ├── knowledge/         # NLM 노트북 지식 관리
+│   │   ├── knowledge-manager.ts # 에이전트별 노트북 관리
+│   │   ├── init-agent-knowledge.ts # 노트북 자동 부트스트랩
+│   │   └── nlm-client.ts       # NLM CLI 래퍼
+│   ├── investment/        # Binance 투자 모니터링 서비스
 │   ├── prediction-market/ # Polymarket 예측 마켓 모니터링
-│   ├── agents/         # 특화 에이전트
-│   │   ├── base/       # BaseA2UIAgentExecutor
-│   │   └── finance/    # Finance Agent (A2A 서버)
-│   ├── memory-new/     # 벡터 임베딩 시스템
-│   ├── a2ui/           # A2UI 타입 및 유틸리티
-│   └── a2a/            # A2A 프로토콜
-├── scripts/
-│   ├── finance/        # 금융 API 스크립트 (yfinance, CoinGecko)
-│   └── youtube-shorts/ # ComfyUI 비디오 생성
-├── ui/
-│   └── telegram-mini-app/  # Telegram Mini App (React)
+│   ├── agents/            # 특화 에이전트
+│   │   ├── base/          # BaseA2UIAgentExecutor
+│   │   └── finance/       # Finance Agent (A2A 서버)
+│   ├── memory-new/        # 벡터 임베딩 시스템
+│   ├── a2ui/              # A2UI 타입 및 유틸리티
+│   └── a2a/               # A2A 프로토콜
 ├── .claude/
-│   └── skills/         # Claude Code 스킬 (16개 - 자산관리 특화)
-│       ├── investment/           # Binance 투자 (hub)
-│       ├── binance-*/            # Binance 세부 (analytics, futures, bots, copy-trading)
-│       ├── prediction-market/    # Polymarket
-│       ├── finance/              # 주식/코인/환율
-│       ├── crypto-investment-sources/ # 투자 정보 소스
-│       ├── news/                 # 투자 뉴스 브리핑
-│       ├── x/                    # 시장 심리 분석 (Twitter)
-│       └── ...                   # a2a, a2ui, agui, claude-docs, LSP 도구
+│   └── skills/            # Claude Code 스킬 (자산관리 특화)
+│       ├── investment/              # Binance 투자 스크립트
+│       ├── prediction-market/       # Polymarket 스크립트
+│       ├── finance/                 # 주식/코인/환율
+│       ├── news/                    # 투자 뉴스 브리핑
+│       ├── x/                       # 시장 심리 분석 (Twitter)
+│       └── ...                      # a2a, a2ui, agui 등
 ├── data/
-│   ├── memory.db       # 메인 DB (users, messages, facts, schedules)
-│   └── memory-index.db # 벡터 인덱스 DB (embeddings, chunks)
+│   ├── memory.db          # 메인 DB (users, messages, facts, schedules)
+│   ├── memory-index.db    # 벡터 인덱스 DB (embeddings, chunks)
+│   └── state/             # YAML 상태 파일
+│       ├── mandate.yaml   # 위임장 (투자 규칙)
+│       ├── state.yaml     # 포트폴리오 현재 상태
+│       ├── inputs.yaml    # 시장 분석 입력
+│       └── decisions/     # 결정 기록
 └── docs/
 ```
 
@@ -199,7 +252,8 @@ michael/
 # 모든 테스트 실행
 pnpm test
 
-# 특정 테스트만 실행
+# 특정 모듈 테스트
+pnpm vitest run src/decision/        # 판단 시스템 (43 tests)
 pnpm vitest run src/brain/memory.test.ts
 pnpm vitest run src/core/gateway.test.ts
 
@@ -224,6 +278,18 @@ INTEGRATION_TESTS=true pnpm vitest run src/brain/memory.integration.test.ts
 "PM 브리핑" - Polymarket 포지션 요약
 "매일 9시에 브리핑 보내줘" - 스케줄 설정
 ```
+
+### 자동 판단 루틴
+
+`mandate.yaml` 설정 시 자동 활성화:
+
+| 루틴 | 시간 | 소집 에이전트 | 목적 |
+|------|------|---------------|------|
+| 아침 | 08:00 | 7개 (풀 소집) | 밤새 변화 파악 + 기회 포착 |
+| 낮 | 14:00 | 3개 (경량) | 포트폴리오·가격·리스크 점검 |
+| 저녁 | 21:00 | 4개 | 하루 마감 + 리스크 정리 |
+| 주간 | 월 09:00 | 10개 (심층) | 주간 성과 리뷰 + 온체인 |
+| 월간 | 1일 09:00 | 6개 | 월간 KPI 분석 + NAV 스냅샷 |
 
 ### 투자 서비스 (Telegram 자동 알림)
 
@@ -267,14 +333,6 @@ Binance API 키와 Polymarket이 설정되면 자동으로 모니터링이 시�
 | 한국 주식 | 005930.KS (삼성전자) | yfinance |
 | 암호화폐 | bitcoin, ethereum, solana | CoinGecko |
 | 환율 | USD/KRW, EUR/USD | Frankfurter |
-
-### Mini App 폼 플로우
-
-1. `/form` 명령어 전송
-2. 키보드에 나타난 "📝 예약 폼 열기" 버튼 클릭
-3. Mini App에서 폼 작성
-4. "예약하기" 버튼 클릭
-5. 봇이 제출된 데이터 수신
 
 ### WebSocket으로 직접 연결
 
@@ -346,18 +404,30 @@ curl -X POST http://localhost:8001/ \
 - [x] Prediction Market (Polymarket 자동 모니터링 + 알림)
 - [x] 범용 비서 → 자산관리 전문가 전환
 
+### 판단 시스템 (완료)
+
+- [x] State Store (YAML 기반 포트폴리오 상태 관리)
+- [x] Judgment Cycle (5단계 판단 루프)
+- [x] Sentinel (실시간 감시 + 긴급 트리거)
+- [x] Knowledge (NLM 노트북 지식 관리)
+- [x] 에이전트 4요소 체계 (14개 전문가 역할/지침/도구/지식)
+- [x] 에이전트 오케스트레이션 (Gather Phase + AgentRunner)
+
 ### 진행 예정
 
 - [ ] PM 자동 거래 실행 자동화
 - [ ] Binance Futures 자동 전략 실행
 - [ ] 포트폴리오 리밸런싱 엔진
 - [ ] 크로스 플랫폼 차익거래 (PM ↔ Binance)
+- [ ] 소셜 감시자 (X/Twitter Playwright 연동)
 - [ ] 프로덕션 배포 (실제 도메인 + SSL)
 
 ## 문서
 
 - [API vs CLI 비교](docs/API_vs_CLI.md)
 - [시스템 아키텍처](docs/ARCHITECTURE.md)
+- [아키텍처 레이어](docs/ARCHITECTURE-LAYERS.md)
+- [자산관리 컨셉](docs/ASSET-MANAGER-CONCEPT.md)
 - [프로토콜 리서치](docs/PROTOCOL_RESEARCH.md)
 - [투자 서비스 가이드](docs/guides/INVESTMENT-USER-GUIDE.md)
 - [예측 마켓 가이드](docs/guides/PREDICTION-MARKET-USER-GUIDE.md)

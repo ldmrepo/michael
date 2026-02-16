@@ -15,34 +15,49 @@
 import { readFileSync, existsSync } from 'fs';
 import path from 'path';
 import { log } from '../utils/logger.js';
-import { getExecutableAgents } from '../decision/agent-registry.js';
-import type { AgentDefinition } from '../decision/agent-registry.js';
 import type { KnowledgeManager } from './knowledge-manager.js';
 import type { NlmClient } from './nlm-client.js';
+
+export interface AgentDefinition {
+  id: string;
+  name: string;
+  team: string;
+  role: string;
+  instructions: string;
+  tools: Array<{ script: string; skillDir: string }>;
+  knowledgeDir: string;
+}
 
 export const FOUNDATIONAL_PREFIX = '[Foundational]';
 
 /**
- * 에이전트별 NLM 노트북 자동 생성/로드 + Foundational Knowledge 시딩
+ * 마이클 본체 + 에이전트별 NLM 노트북 자동 생성/로드 + Foundational Knowledge 시딩
  *
  * @param km KnowledgeManager 인스턴스
  * @returns 생성/로드된 에이전트 이름 배열
  */
 export async function initAgentKnowledge(km: KnowledgeManager): Promise<string[]> {
-  const agents = getExecutableAgents();
   const initialized: string[] = [];
 
-  for (const agent of agents) {
-    try {
-      const client = await km.getClient(agent.id);
-      await seedFoundationalKnowledge(client, agent);
-      initialized.push(agent.id);
-    } catch (e) {
-      log('warn', `⚠️ Failed to init knowledge for ${agent.id}: ${e}`);
-    }
+  // 마이클 본체 노트북 생성/로드
+  try {
+    const michaelClient = await km.getClient('michael');
+    const michaelAgent: AgentDefinition = {
+      id: 'michael',
+      name: 'Michael',
+      team: 'execution',
+      role: '24시간 AI 자산관리 전문가',
+      instructions: '',
+      tools: [],
+      knowledgeDir: 'knowledge/michael/',
+    };
+    await seedFoundationalKnowledge(michaelClient, michaelAgent);
+    initialized.push('michael');
+  } catch (e) {
+    log('warn', `⚠️ Failed to init knowledge for michael: ${e}`);
   }
 
-  log('info', `📓 Agent knowledge initialized: ${initialized.length}/${agents.length} notebooks`);
+  log('info', `📓 Agent knowledge initialized: ${initialized.length} notebooks`);
   return initialized;
 }
 

@@ -52,6 +52,7 @@ export class Memory {
     this.dbPath = dbPath;
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL'); // Write-Ahead Logging for better performance
+    this.db.pragma('busy_timeout = 5000'); // Wait up to 5s for locks (Python scripts share this DB)
     this.initializeTables();
     log('info', `✅ Memory initialized: ${dbPath}`);
   }

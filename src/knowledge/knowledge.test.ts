@@ -18,8 +18,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
-import type { Decision } from '../state-store/types.js';
-
 // Mock child_process.execFile before imports
 vi.mock('child_process', () => ({
   execFile: vi.fn(),
@@ -30,7 +28,7 @@ import { NlmClient } from './nlm-client.js';
 import { KnowledgeSync } from './knowledge-sync.js';
 import { KnowledgeManager } from './knowledge-manager.js';
 import { seedFoundationalKnowledge, FOUNDATIONAL_PREFIX } from './init-agent-knowledge.js';
-import type { AgentDefinition } from '../decision/agent-registry.js';
+import type { AgentDefinition } from './init-agent-knowledge.js';
 
 const mockedExecFile = vi.mocked(execFile);
 
@@ -52,19 +50,6 @@ function mockExecFailure(message: string = 'command not found') {
 
 const TEST_DIR = `test-knowledge-${process.pid}`;
 const NOTEBOOK_ID = 'test-notebook-123';
-
-const mockDecision: Decision = {
-  id: 'D-20260215-001',
-  timestamp: '2026-02-15T14:00:00.000Z',
-  action: 'BUY',
-  target: 'BTC',
-  platform: 'binance_spot',
-  amount: 50,
-  reason: 'RSI oversold bounce signal',
-  inputs_used: ['technical', 'sentiment'],
-  mandate_check: { max_single_trade: 'OK(3.4%)', min_cash: 'OK(15%)' },
-  status: 'proposed',
-};
 
 describe('NlmClient', () => {
   beforeEach(() => {
@@ -340,47 +325,6 @@ describe('KnowledgeSync', () => {
     rmSync(TEST_DIR, { recursive: true, force: true });
   });
 
-  describe('syncDecision', () => {
-    it('adds NLM source with formatted decision data', async () => {
-      mockExecSuccess('Source added');
-      await sync.syncDecision(mockDecision);
-
-      expect(mockedExecFile).toHaveBeenCalledWith(
-        'nlm',
-        expect.arrayContaining([
-          'source', 'add', NOTEBOOK_ID,
-          '--title', 'D-20260215-001: BUY BTC $50',
-        ]),
-        expect.any(Object),
-        expect.any(Function),
-      );
-
-      // Check content includes key fields
-      const callArgs = mockedExecFile.mock.calls[0][1] as string[];
-      const contentIdx = callArgs.indexOf('--text');
-      const content = callArgs[contentIdx + 1];
-      expect(content).toContain('BUY');
-      expect(content).toContain('BTC');
-      expect(content).toContain('binance_spot');
-      expect(content).toContain('RSI oversold bounce signal');
-      expect(content).toContain('max_single_trade: OK(3.4%)');
-    });
-
-    it('includes HOLD decisions', async () => {
-      mockExecSuccess('Source added');
-      const holdDecision: Decision = {
-        ...mockDecision,
-        id: 'D-20260215-002',
-        action: 'HOLD',
-        target: '',
-        amount: 0,
-        reason: 'All indicators normal',
-      };
-      await sync.syncDecision(holdDecision);
-      expect(mockedExecFile).toHaveBeenCalled();
-    });
-  });
-
   describe('syncDailySnapshot', () => {
     it('adds source with state.yaml and inputs.yaml content', async () => {
       writeFileSync(join(TEST_DIR, 'state.yaml'), 'state:\n  total_nav: 1500\n');
@@ -598,117 +542,6 @@ describe('KnowledgeManager', () => {
       expect(fresh!.summary).toBe('Fresh data');
       expect(mockedExecFile).toHaveBeenCalled();
     });
-  });
-});
-
-describe('KnowledgeSync.syncDecisionOutcome', () => {
-  const OUTCOME_DIR = `test-outcome-${process.pid}`;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mkdirSync(OUTCOME_DIR, { recursive: true });
-    // Pre-populate registry for KnowledgeManager
-    writeFileSync(join(OUTCOME_DIR, 'nlm-notebooks.json'), JSON.stringify({
-      binance_trader: {
-        notebookId: 'bt-notebook-id',
-        title: 'Michael: binance_trader',
-        createdAt: '',
-      },
-      pm_trader: {
-        notebookId: 'pm-notebook-id',
-        title: 'Michael: pm_trader',
-        createdAt: '',
-      },
-    }));
-  });
-
-  afterEach(() => {
-    rmSync(OUTCOME_DIR, { recursive: true, force: true });
-  });
-
-  it('creates note in binance_trader notebook for binance_spot decision', async () => {
-    mockExecSuccess('Note created: note-id-123');
-    const nlm = new NlmClient('judgment-notebook');
-    const sync = new KnowledgeSync(nlm, OUTCOME_DIR);
-    const km = new KnowledgeManager(OUTCOME_DIR);
-
-    const decision: Decision = {
-      ...mockDecision,
-      status: 'executed',
-      platform: 'binance_spot',
-    };
-
-    await sync.syncDecisionOutcome(decision, km);
-
-    // Should call note create on binance_trader's notebook
-    expect(mockedExecFile).toHaveBeenCalledWith(
-      'nlm',
-      expect.arrayContaining(['note', 'create', 'bt-notebook-id']),
-      expect.any(Object),
-      expect.any(Function),
-    );
-
-    const callArgs = mockedExecFile.mock.calls[0][1] as string[];
-    const titleIdx = callArgs.indexOf('--title');
-    expect(callArgs[titleIdx + 1]).toContain('[SUCCESS]');
-    expect(callArgs[titleIdx + 1]).toContain('BUY BTC');
-  });
-
-  it('creates note in pm_trader notebook for polymarket decision', async () => {
-    mockExecSuccess('Note created');
-    const nlm = new NlmClient('judgment-notebook');
-    const sync = new KnowledgeSync(nlm, OUTCOME_DIR);
-    const km = new KnowledgeManager(OUTCOME_DIR);
-
-    const decision: Decision = {
-      ...mockDecision,
-      platform: 'polymarket',
-      status: 'rejected',
-      target: 'BTC-50K-YES',
-    };
-
-    await sync.syncDecisionOutcome(decision, km);
-
-    expect(mockedExecFile).toHaveBeenCalledWith(
-      'nlm',
-      expect.arrayContaining(['note', 'create', 'pm-notebook-id']),
-      expect.any(Object),
-      expect.any(Function),
-    );
-
-    const callArgs = mockedExecFile.mock.calls[0][1] as string[];
-    const titleIdx = callArgs.indexOf('--title');
-    expect(callArgs[titleIdx + 1]).toContain('[FAIL]');
-  });
-
-  it('skips when platform is unknown', async () => {
-    const nlm = new NlmClient('judgment-notebook');
-    const sync = new KnowledgeSync(nlm, OUTCOME_DIR);
-    const km = new KnowledgeManager(OUTCOME_DIR);
-
-    const decision: Decision = {
-      ...mockDecision,
-      platform: 'unknown_platform',
-    };
-
-    await sync.syncDecisionOutcome(decision, km);
-    expect(mockedExecFile).not.toHaveBeenCalled();
-  });
-
-  it('handles note creation failure gracefully', async () => {
-    mockExecFailure('API error');
-    const nlm = new NlmClient('judgment-notebook');
-    const sync = new KnowledgeSync(nlm, OUTCOME_DIR);
-    const km = new KnowledgeManager(OUTCOME_DIR);
-
-    const decision: Decision = {
-      ...mockDecision,
-      status: 'executed',
-      platform: 'binance_spot',
-    };
-
-    // Should not throw
-    await sync.syncDecisionOutcome(decision, km);
   });
 });
 

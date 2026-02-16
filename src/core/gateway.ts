@@ -21,8 +21,8 @@ import {
  * AG-UI 프로토콜 호환 확장 (하위 호환성 유지)
  */
 export interface GatewayMessage {
-  from: 'telegram' | 'scheduler' | 'cli' | 'agent';
-  to: 'agent' | 'telegram' | 'scheduler' | 'cli' | 'investment' | string;
+  from: 'telegram' | 'scheduler' | 'cli' | 'agent' | 'sentinel';
+  to: 'agent' | 'telegram' | 'scheduler' | 'cli' | 'investment' | 'sentinel' | string;
   userId: string;
   content: string;
   metadata?: Record<string, any>;
@@ -45,7 +45,7 @@ export interface GatewayMessage {
 interface Client {
   id: string;
   ws: WebSocket;
-  type: 'telegram' | 'scheduler' | 'cli' | 'agent' | 'unknown';
+  type: 'telegram' | 'scheduler' | 'cli' | 'agent' | 'sentinel' | 'unknown';
   connectedAt: number;
 }
 

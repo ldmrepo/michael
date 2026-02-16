@@ -286,15 +286,15 @@ INTEGRATION_TESTS=true pnpm vitest run src/brain/memory.integration.test.ts
 ### Protocol Integration (Complete)
 - [x] Phase 8-12: AG-UI, A2UI, A2A protocols
 
-### Asset Management (Current Focus)
-- [x] Binance 포트폴리오 자동 모니터링 (14개 cron job + Telegram 알림)
-- [x] Polymarket 예측 마켓 모니터링 (가격 추적, 고확률 스캔, 차익거래)
+### Asset Management — 자율 도구 관리 (Current)
+- [x] Binance/Polymarket API 기본 정보 스킬 제공
+- [x] 마이클 세컨드 브레인 (NLM) 통합 — 경험 축적 + [LESSON:] 마커
+- [x] 사전 스케줄/스크립트 제거 → 마이클이 필요시 직접 도구 생성·실행
 - [x] Finance Agent (주식/코인/환율 A2A 서비스)
-- [x] 범용 비서 → 자산관리 전문가 전환 (스킬 정리, 문서 업데이트)
-- [ ] PM 자동 거래 실행 자동화
-- [ ] Binance Futures 자동 전략 실행
-- [ ] 포트폴리오 리밸런싱 엔진
-- [ ] 크로스 플랫폼 차익거래 (PM ↔ Binance)
+
+**도구 관리 방식**: 마이클은 `binance`, `polymarket` 스킬의 API 정보를 참조하여
+필요시 직접 스크립트를 작성·실행한다. 반복 사용 도구는 `[CREATE_SKILL:]` 마커로
+스킬로 저장. 학습 사항은 `[LESSON:]` 마커로 NLM에 기록하여 축적한다.
 
 ## Protocol Integration
 

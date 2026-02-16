@@ -5,36 +5,36 @@
 
 import { KnowledgeManager } from '../src/knowledge/knowledge-manager.js';
 import { seedFoundationalKnowledge, FOUNDATIONAL_PREFIX } from '../src/knowledge/init-agent-knowledge.js';
-import { getExecutableAgents } from '../src/decision/agent-registry.js';
+import type { AgentDefinition } from '../src/knowledge/init-agent-knowledge.js';
 
 async function main() {
   const km = new KnowledgeManager('./data');
-  const agents = getExecutableAgents();
 
-  console.log(`\n📓 Seeding foundational knowledge for ${agents.length} agents...\n`);
+  const michaelAgent: AgentDefinition = {
+    id: 'michael',
+    name: 'Michael',
+    team: 'execution',
+    role: '24시간 AI 자산관리 전문가',
+    instructions: '',
+    tools: [],
+    knowledgeDir: 'knowledge/michael/',
+  };
 
-  let seeded = 0;
-  let skipped = 0;
-  let failed = 0;
+  console.log('\n📓 Seeding foundational knowledge for michael...\n');
 
-  for (const agent of agents) {
-    try {
-      const client = await km.getClient(agent.id);
-      const result = await seedFoundationalKnowledge(client, agent);
-      if (result) {
-        console.log(`  ✅ ${agent.id} — seeded`);
-        seeded++;
-      } else {
-        console.log(`  ⏭️  ${agent.id} — skipped (already exists or no file)`);
-        skipped++;
-      }
-    } catch (e) {
-      console.error(`  ❌ ${agent.id} — failed: ${e}`);
-      failed++;
+  try {
+    const client = await km.getClient(michaelAgent.id);
+    const result = await seedFoundationalKnowledge(client, michaelAgent);
+    if (result) {
+      console.log('  ✅ michael — seeded');
+    } else {
+      console.log('  ⏭️  michael — skipped (already exists or no file)');
     }
+  } catch (e) {
+    console.error(`  ❌ michael — failed: ${e}`);
   }
 
-  console.log(`\n📊 Results: ${seeded} seeded, ${skipped} skipped, ${failed} failed\n`);
+  console.log('\n📊 Done\n');
 }
 
 main().catch(console.error);
