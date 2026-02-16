@@ -1,8 +1,6 @@
 ---
 name: polymarket
-description: |
-  Polymarket 예측시장 API 기본 정보. 마이클이 필요시 도구를 직접 생성하여 사용.
-  Keywords: 폴리마켓, polymarket, 예측시장, PM, 베팅, prediction market
+description: "Polymarket 예측시장 API 기본 정보. 마이클이 필요시 도구를 직접 생성하여 사용. 키워드: 폴리마켓, polymarket, 예측시장, PM, 베팅, prediction market"
 allowed-tools: Bash(python3:*), Bash(curl:*), Read, Write
 ---
 

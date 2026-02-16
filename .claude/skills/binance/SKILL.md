@@ -1,8 +1,6 @@
 ---
 name: binance
-description: |
-  Binance 거래소 API 기본 정보. 마이클이 필요시 도구를 직접 생성하여 사용.
-  Keywords: 바이낸스, binance, 포트폴리오, 잔고, 선물, 거래, spot, futures, balance
+description: "Binance 거래소 API 기본 정보. 마이클이 필요시 도구를 직접 생성하여 사용. 키워드: 바이낸스, binance, 포트폴리오, 잔고, 선물, 거래, spot, futures, balance"
 allowed-tools: Bash(python3:*), Bash(curl:*), Read, Write
 ---
 
