@@ -296,6 +296,17 @@ INTEGRATION_TESTS=true pnpm vitest run src/brain/memory.integration.test.ts
 필요시 직접 스크립트를 작성·실행한다. 반복 사용 도구는 `[CREATE_SKILL:]` 마커로
 스킬로 저장. 학습 사항은 `[LESSON:]` 마커로 NLM에 기록하여 축적한다.
 
+### 코드 작성 규칙
+- **민감 정보 금지**: API 키, 비밀번호, 지갑 주소 등을 코드에 하드코딩하지 않는다. 반드시 환경변수(`os.environ`) 사용
+- **스킬 스크립트**: 특정 스킬 전용 스크립트는 `.claude/skills/{스킬명}/scripts/`에 작성
+- **공통 스크립트**: 여러 스킬에서 공유하는 유틸리티는 `scripts/` 디렉토리에 작성
+
+### 세컨드 브레인 (NLM) 활용
+- 작업 전 관련 노트북에 `query`하여 과거 경험/교훈 참조
+- 실패·성공 경험은 `[LESSON:]` 마커로 즉시 기록
+- 반복 사용 도구는 `[CREATE_SKILL:]` 마커로 스킬화
+- 노트북 구조: michael(본체), binance_trader, pm_trader 등 에이전트별 분리
+
 ## Protocol Integration
 
 ### AG-UI (Agent-User Interface)
