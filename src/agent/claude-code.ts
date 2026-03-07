@@ -6,6 +6,8 @@ import { Scheduler } from '../scheduler/cron.js';
 import { log } from '../utils/logger.js';
 import type { KnowledgeManager } from '../knowledge/knowledge-manager.js';
 import type { NlmClient } from '../knowledge/nlm-client.js';
+import type { ObsidianVault } from '../knowledge/obsidian-vault.js';
+import type { ObsidianSync } from '../knowledge/obsidian-sync.js';
 
 /**
  * 벡터 검색 결과 타입 (Message + 점수)
@@ -22,7 +24,7 @@ type VectorSearchResult = Message & {
 export interface ClaudeCodeOptions {
   mode?: 'interactive' | 'autopilot';
   skipPermissions?: boolean;
-  model?: 'sonnet' | 'opus' | 'haiku';
+  model?: string;
   maxTokens?: number;
 }
 
@@ -71,6 +73,9 @@ export class ClaudeCodeAgent {
   private scheduler: Scheduler | null = null;
   private activeProcesses: Set<ChildProcess> = new Set();
   private nlmClient: NlmClient | null = null;
+  private vault: ObsidianVault | null = null;
+  // Stored for future use (e.g. manual sync triggers)
+  public obsidianSync: ObsidianSync | null = null;
 
   constructor(memory: Memory) {
     this.memory = memory;
@@ -93,6 +98,15 @@ export class ClaudeCodeAgent {
   }
 
   /**
+   * Obsidian Vault (영구 지식 저장소) 연결
+   */
+  setVault(vault: ObsidianVault, sync: ObsidianSync): void {
+    this.vault = vault;
+    this.obsidianSync = sync;
+    log('info', '📓 Obsidian vault connected to Agent');
+  }
+
+  /**
    * 사용자와 대화
    */
   async chat(
@@ -107,8 +121,11 @@ export class ClaudeCodeAgent {
       // 2. NLM 세컨드 브레인 조회 (관련 경험/교훈)
       const nlmContext = await this.queryNlm(message);
 
+      // 2.5 Obsidian Vault 조회 (큐레이션된 지식)
+      const vaultContext = this.queryVault(message);
+
       // 3. 프롬프트 구성
-      const prompt = this.buildPrompt(message, context, nlmContext);
+      const prompt = this.buildPrompt(message, context, nlmContext, vaultContext);
 
       // 4. Claude Code CLI 실행 (비대화형 모드에서는 권한 프롬프트 건너뛰기)
       const cliOptions = { skipPermissions: true, ...options };
@@ -186,6 +203,7 @@ export class ClaudeCodeAgent {
     message: string,
     context: LoadedContext,
     nlmContext?: string,
+    vaultContext?: string,
   ): string {
     const factsText = Object.entries(context.facts)
       .map(([key, value]) => `- ${key}: ${value}`)
@@ -256,6 +274,10 @@ scripts directly. You can create new skills with [CREATE_SKILL:] when needed.
 ${nlmContext ? `
 ## 세컨드 브레인 (Past Experience & Lessons)
 ${nlmContext}
+` : ''}
+${vaultContext ? `
+## 지식 저장소 (Curated Knowledge)
+${vaultContext}
 ` : ''}
 ## 학습 기록 (Learning)
 When you discover something important (API quirks, best practices, errors to avoid),
@@ -338,11 +360,10 @@ Please respond to the user's message:
         args.push('--dangerously-skip-permissions');
       }
 
-      if (options.model) {
-        args.push('--model', options.model);
-      }
+      const model = options.model || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';
+      args.push('--model', model);
 
-      log('debug', `🤖 Executing Claude Code with prompt length: ${prompt.length}`);
+      log('debug', `🤖 Executing Claude Code (model=${model}) with prompt length: ${prompt.length}`);
 
       // Claude Code CLI 실행 (CLAUDECODE 환경변수 제거하여 중첩 세션 방지)
       const env = { ...process.env };
@@ -534,16 +555,36 @@ Please respond to the user's message:
       callbacks.onA2UI(a2uiMessages);
     }
 
-    // [LESSON:] 마커 처리 — NLM에 학습 기록
+    // [LESSON:] 마커 처리 — NLM + Vault 듀얼 라이트
     const lessonMatches = response.matchAll(/\[LESSON:(.+?):(.+?)\]/g);
     for (const match of lessonMatches) {
       const [, title, content] = match;
       if (this.nlmClient) {
         try {
           await this.nlmClient.noteCreate(title, content);
-          log('info', `🧠 Lesson saved: ${title}`);
+          log('info', `🧠 Lesson saved (NLM): ${title}`);
         } catch (e) {
-          log('warn', `⚠️ Failed to save lesson: ${e}`);
+          log('warn', `⚠️ Failed to save lesson to NLM: ${e}`);
+        }
+      }
+      if (this.vault) {
+        try {
+          const today = new Date().toISOString().substring(0, 10);
+          this.vault.createNote({
+            frontmatter: {
+              title,
+              date: today,
+              type: 'lesson',
+              domain: 'general',
+              tags: ['lesson', 'auto'],
+              source: 'nlm',
+              status: 'active',
+            },
+            content,
+          }, 'lessons/general');
+          log('info', `📓 Lesson saved (vault): ${title}`);
+        } catch (e) {
+          log('warn', `⚠️ Failed to save lesson to vault: ${e}`);
         }
       }
     }
@@ -579,8 +620,11 @@ Please respond to the user's message:
       // 2. NLM 세컨드 브레인 조회
       const nlmContext = await this.queryNlm(message);
 
+      // 2.5 Obsidian Vault 조회 (큐레이션된 지식)
+      const vaultContext = this.queryVault(message);
+
       // 3. 프롬프트 구성
-      const prompt = this.buildPrompt(message, context, nlmContext);
+      const prompt = this.buildPrompt(message, context, nlmContext, vaultContext);
 
       // 4. Claude Code CLI 실행 (스트리밍, 비대화형 모드에서는 권한 프롬프트 건너뛰기)
       const cliOptions = { skipPermissions: true, ...options };
@@ -619,11 +663,10 @@ Please respond to the user's message:
         args.push('--dangerously-skip-permissions');
       }
 
-      if (options.model) {
-        args.push('--model', options.model);
-      }
+      const model = options.model || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';
+      args.push('--model', model);
 
-      log('debug', `🤖 Executing Claude Code (streaming) with prompt length: ${prompt.length}`);
+      log('debug', `🤖 Executing Claude Code (streaming, model=${model}) with prompt length: ${prompt.length}`);
 
       // Claude Code CLI 실행 (CLAUDECODE 환경변수 제거하여 중첩 세션 방지)
       const env = { ...process.env };
@@ -731,6 +774,31 @@ Please respond to the user's message:
     
     const prompt = `/${skillName} ${JSON.stringify(params)}`;
     return this.executeClaudeCode(prompt, {});
+  }
+
+  /**
+   * Obsidian Vault 조회 — 큐레이션된 지식 검색 (동기)
+   */
+  private queryVault(message: string): string | undefined {
+    if (!this.vault) {
+      log('debug', 'Vault query skipped: vault not initialized');
+      return undefined;
+    }
+
+    try {
+      log('info', `📓 Vault query: "${message.substring(0, 50)}..."`);
+      const results = this.vault.searchByContent(message, { status: 'active', limit: 3 });
+      log('info', `📓 Vault results: ${results.length} notes found`);
+      
+      if (results.length === 0) return undefined;
+
+      return results.map(n =>
+        `### ${n.frontmatter.title} (${n.frontmatter.domain})\n${n.content.substring(0, 500)}`,
+      ).join('\n\n');
+    } catch (e) {
+      log('warn', `⚠️  Vault query error: ${e}`);
+      return undefined;
+    }
   }
 
   /**
