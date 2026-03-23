@@ -55,6 +55,9 @@ EMBEDDING_PROVIDER=local        # local | openai | gemini
 - **스킬 스크립트**: `.claude/skills/{스킬명}/scripts/`
 - **공통 스크립트**: `scripts/`
 - TypeScript strict mode, ESNext modules, import 시 `.js` 확장자 필수
+- **전략 전환 원칙**: 전략을 개선하거나 새 전략으로 전환할 때는 과거 전략과의 호환성을 위해 코드를 남기지 않는다. 기존 전략 관련 소스, 설정, CLI, 테스트, 문서, dead import를 함께 제거하고 단일 활성 전략 경로만 유지한다.
+- **전략 기준선 원칙**: 현재 채택한 전략 기준선은 마지막 유효 OOS(out-of-sample) 버전으로 고정한다. 기준선은 잘못되었다는 근거가 확인될 때만 변경하고, 변경 전에는 반드시 현재 기준선 대비 실측 백테스트/워크포워드 열화를 입증해야 한다.
+- **현재 기준선 식별자**: `binance-scalper`의 현재 기준선 run id는 `20260308T071943Z-strategy-walkforward`다.
 
 ## Agent Response Markers
 

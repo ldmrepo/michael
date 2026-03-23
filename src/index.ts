@@ -6,7 +6,7 @@ import { TelegramChannel } from './channels/telegram.js';
 import { Scheduler } from './scheduler/cron.js';
 import { HttpServer } from './core/http-server.js';
 import { FinanceAgentServer } from './agents/finance/server.js';
-import { NlmClient, KnowledgeSync, KnowledgeManager, initAgentKnowledge } from './knowledge/index.js';
+import { NlmClient, KnowledgeSync, KnowledgeManager, initAgentKnowledge, ObsidianVault, ObsidianSync } from './knowledge/index.js';
 import cron from 'node-cron';
 import { log } from './utils/logger.js';
 import { killAllPythonProcesses } from './utils/spawn-python.js';
@@ -139,6 +139,59 @@ class Michael {
         } catch (error) {
           log('warn', `⚠️ Knowledge sync (NLM) failed to initialize: ${error}`);
         }
+      }
+
+      // Obsidian Vault (영구 지식 저장소)
+      try {
+        const dataDir = process.env.DATA_DIR || './data';
+        const vaultPath = process.env.OBSIDIAN_VAULT_PATH || path.join(dataDir, 'obsidian-vault');
+        const vault = new ObsidianVault({ vaultPath });
+        vault.ensureStructure();
+
+        // NLM이 활성화되어 있으면 sync 엔진도 연결
+        if (await NlmClient.isAvailable()) {
+          const km = new KnowledgeManager(dataDir);
+          const obsidianSync = new ObsidianSync(vault, km, this.memory, dataDir);
+          this.agent.setVault(vault, obsidianSync);
+
+          // Cron: 일일 저널 (매일 21:00 UTC = KST 06:00)
+          cron.schedule('0 21 * * *', () => {
+            obsidianSync.generateDailyJournal().catch(e =>
+              log('warn', `⚠️ Daily journal generation failed: ${e}`),
+            );
+          });
+
+          // Cron: 주간 리뷰 (일요일 02:00 UTC)
+          cron.schedule('0 2 * * 0', () => {
+            obsidianSync.generateWeeklyReview().catch(e =>
+              log('warn', `⚠️ Weekly review generation failed: ${e}`),
+            );
+          });
+
+          // Cron: NLM→Vault 아카이빙 (일요일 02:30 UTC)
+          cron.schedule('30 2 * * 0', () => {
+            obsidianSync.archiveNlmLessons(['binance_trader', 'pm_trader', 'michael']).catch(e =>
+              log('warn', `⚠️ NLM archival failed: ${e}`),
+            );
+          });
+
+          // Cron: Vault→NLM 플레이북 (매일 03:30 UTC)
+          cron.schedule('30 3 * * *', () => {
+            obsidianSync.syncPlaybooksToNlm().catch(e =>
+              log('warn', `⚠️ Playbook sync failed: ${e}`),
+            );
+          });
+
+          log('info', `📓 Obsidian vault + sync initialized: ${vaultPath}`);
+        } else {
+          // NLM 없이 vault만 연결 (sync 없음)
+          const dummyKm = new KnowledgeManager(dataDir);
+          const obsidianSync = new ObsidianSync(vault, dummyKm, this.memory, dataDir);
+          this.agent.setVault(vault, obsidianSync);
+          log('info', `📓 Obsidian vault initialized (no NLM sync): ${vaultPath}`);
+        }
+      } catch (error) {
+        log('warn', `⚠️ Obsidian vault init failed (continuing without it): ${error}`);
       }
 
       log('info', '🎉 Michael is ready!');
