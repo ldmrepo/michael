@@ -48,6 +48,33 @@ def rolling_max(values: list[float], window: int) -> list[float | None]:
     ]
 
 
+def bb_width_ratio(closes: list[float], period: int = 20) -> list[float | None]:
+    """Bollinger Band width / its own SMA. >1.8 = volatility regime shift."""
+    results: list[float | None] = []
+    for i in range(len(closes)):
+        if i + 1 < period:
+            results.append(None)
+            continue
+        window = closes[i + 1 - period : i + 1]
+        sma = sum(window) / period
+        std = (sum((v - sma) ** 2 for v in window) / period) ** 0.5
+        width = (2 * std * 2) / sma if sma > 0 else 0  # (upper - lower) / middle
+        results.append(width)
+    # Now compute ratio: width / SMA(width, period)
+    ratios: list[float | None] = []
+    for i in range(len(results)):
+        if results[i] is None or i + 1 < period * 2:
+            ratios.append(None)
+            continue
+        recent = [r for r in results[i + 1 - period : i + 1] if r is not None]
+        if len(recent) < period:
+            ratios.append(None)
+        else:
+            avg = sum(recent) / len(recent)
+            ratios.append(results[i] / avg if avg > 0 else None)
+    return ratios
+
+
 def rolling_min(values: list[float], window: int) -> list[float | None]:
     return [
         min(values[i + 1 - window : i + 1]) if i + 1 >= window else None

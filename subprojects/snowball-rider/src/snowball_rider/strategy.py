@@ -4,7 +4,8 @@ Consensus parameters (3-team verified: Alpha/Beta/Gamma):
 Entry LONG:  EMA(10) > EMA(26) + RSI(21) > 45
 Entry SHORT: EMA(10) < EMA(26) + RSI(21) < 55
 Exit: SL -70% leveraged PnL OR (TP 20%+ then EMA(7) vs EMA(14) cross 2 consecutive days)
-Leverage: 2x, Allocation: 60% of wallet
+BB regime switch: When BB width > 1.8x avg → SL tightens to -40%
+Leverage: 2x, Allocation: 100% of wallet
 """
 
 from __future__ import annotations
@@ -18,14 +19,17 @@ from pathlib import Path
 import structlog
 
 from . import executor, feeds, state, notify
-from .indicators import compute_ema, compute_rsi
+from .indicators import compute_ema, compute_rsi, bb_width_ratio
 
 log = structlog.get_logger(__name__)
 
 SYMBOL = "BTCUSDT"
 LEVERAGE = 2
-ALLOCATION = 0.6  # 60% of wallet, 40% reserve
+ALLOCATION = 1.0  # 100% of wallet (BB regime switch protects capital)
 COOLDOWN_SECONDS = 86400  # 24h between signals
+SL_NORMAL = -70.0   # default SL
+SL_TIGHT = -40.0    # SL when BB width regime shift detected
+BB_THRESHOLD = 1.8  # BB width / avg > this → tighten SL
 
 
 DATA_DIR = Path("data")
@@ -55,12 +59,17 @@ class BTCTrendWorker:
         self._tp_activated: bool = False  # latch: once True, stays True until exit
         self._last_candle_time: int = 0   # open_time of last processed candle
         self._dry_run: bool = True
+        # Restore TP latch from SQLite (survives process restart)
+        if state.get_config("tp_activated") == "true":
+            self._tp_activated = True
+            log.info("tp_latch_restored")
 
     def _reset_tp_state(self) -> None:
         """Reset all TP-related state. Call on any position exit."""
         self._exit_cross_days = 0
         self._tp_activated = False
         self._last_candle_time = 0
+        state.set_config("tp_activated", "false")
 
     def detect(self) -> dict | None:
         closes = feeds.get_daily_closes(250)
@@ -119,12 +128,19 @@ class BTCTrendWorker:
         ema14 = compute_ema(closes, 14)
         ema26 = compute_ema(closes, 26)
         rsi21 = compute_rsi(closes, 21)
+        bb_ratio = bb_width_ratio(closes, 20)
 
         i = len(closes) - 1
         price = closes[i]
 
         if any(v is None for v in [ema7[i], ema10[i], ema14[i], ema26[i], rsi21[i]]):
             return None
+
+        # Dynamic SL: tighten when BB width signals volatility regime shift
+        sl_level = SL_NORMAL
+        if bb_ratio[i] is not None and bb_ratio[i] > BB_THRESHOLD:
+            sl_level = SL_TIGHT
+            log.info("bb_regime_shift", bb_ratio=f"{bb_ratio[i]:.2f}", sl=sl_level)
 
         # If no position but TP state is dirty, reset (handles /close, orphan, etc.)
         if not pos and (self._tp_activated or self._exit_cross_days > 0):
@@ -148,15 +164,19 @@ class BTCTrendWorker:
                 log.warning("mark_price_fallback", error=str(e), using="candle_close")
                 notify.send(f"SL CHECK: mark price unavailable, using candle close ${price:,.0f}")
 
-            if pnl_pct <= -70.0:
+            if pnl_pct <= sl_level:
                 self._reset_tp_state()
+                reason_tag = f"SL hit {pnl_pct:+.1f}%"
+                if sl_level == SL_TIGHT:
+                    reason_tag += f" (BB regime, tightened to {sl_level:.0f}%)"
                 return {"action": "close", "pos_id": pos["id"], "price": price, "pnl_pct": pnl_pct, "side": side,
-                        "reason": f"SL hit {pnl_pct:+.1f}%"}
+                        "reason": reason_tag}
 
             # TP activation: latch using CLOSE price (matches backtest)
             close_pnl = ((price / entry - 1) if side == "LONG" else (entry / price - 1)) * 100 * LEVERAGE
-            if close_pnl >= 20.0:
+            if close_pnl >= 20.0 and not self._tp_activated:
                 self._tp_activated = True
+                state.set_config("tp_activated", "true")
 
             # TP exit: EMA(7) vs EMA(14) cross 2 consecutive days (only when activated)
             # Use candle open_time to detect new daily candle (not len which caps at 250)
@@ -177,10 +197,11 @@ class BTCTrendWorker:
                             "reason": f"TP EMA cross {pnl_pct:+.1f}%"}
             return None  # Hold position
 
-        # ── Cooldown (only when wallet >= $10,000) ──
-        wallet = executor.get_wallet_balance()
-        if wallet >= 10000 and time.monotonic() - self._last_signal_time < COOLDOWN_SECONDS:
+        # ── Cooldown ──
+        if time.monotonic() - self._last_signal_time < COOLDOWN_SECONDS:
             return None
+
+        wallet = executor.get_available_balance()
 
         # ── Entry check ──
         if state.get_config("killed") == "true":
@@ -196,16 +217,24 @@ class BTCTrendWorker:
             log.warning("entry_blocked_api_fail", error=str(e))
             return None
 
+        # Use mark price for qty calculation (avoids margin insufficient on price gap)
+        try:
+            order_price = executor.get_mark_price(SYMBOL)
+        except Exception:
+            order_price = price
+        if order_price <= 0:
+            order_price = price
+
         # LONG: EMA(10) > EMA(26) + RSI(21) > 45
         if ema10[i] > ema26[i] and rsi21[i] > 45:
-            qty = round(wallet * ALLOCATION * LEVERAGE / price, 3)
+            qty = int(wallet * ALLOCATION * LEVERAGE * 0.95 / order_price * 1000) / 1000
             self._last_signal_time = time.monotonic()
             return {"action": "open", "side": "LONG", "price": price, "qty": qty,
                     "reason": f"LONG: EMA10>{ema26[i]:.0f}(26), RSI={rsi21[i]:.0f}>45"}
 
         # SHORT: EMA(10) < EMA(26) + RSI(21) < 55
         if ema10[i] < ema26[i] and rsi21[i] < 55:
-            qty = round(wallet * ALLOCATION * LEVERAGE / price, 3)
+            qty = int(wallet * ALLOCATION * LEVERAGE * 0.95 / order_price * 1000) / 1000
             self._last_signal_time = time.monotonic()
             return {"action": "open", "side": "SHORT", "price": price, "qty": qty,
                     "reason": f"SHORT: EMA10<{ema26[i]:.0f}(26), RSI={rsi21[i]:.0f}<55"}

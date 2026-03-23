@@ -24,13 +24,18 @@ def send(message: str) -> bool:
         _load()
     if not BOT_TOKEN or not CHAT_ID:
         return False
-    try:
-        r = requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            json={"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"},
-            timeout=10,
-        )
-        return r.status_code == 200
-    except Exception as e:
-        logger.error("Telegram send failed: %s", e)
-        return False
+    import time
+    for attempt in range(3):
+        try:
+            r = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                json={"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"},
+                timeout=10,
+            )
+            if r.status_code == 200:
+                return True
+        except Exception as e:
+            logger.error("Telegram send failed (attempt %d): %s", attempt + 1, e)
+        if attempt < 2:
+            time.sleep(2)
+    return False

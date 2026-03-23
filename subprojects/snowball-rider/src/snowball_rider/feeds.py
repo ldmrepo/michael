@@ -91,6 +91,7 @@ def _on_close(ws: websocket.WebSocketApp, code: int | None, msg: str | None) -> 
 def run(shutdown_event: threading.Event) -> None:
     """Run WebSocket feed with auto-reconnect. Blocks until shutdown."""
     backfill()
+    reconnect_delay = 5
     while not shutdown_event.is_set():
         try:
             ws = websocket.WebSocketApp(
@@ -102,9 +103,11 @@ def run(shutdown_event: threading.Event) -> None:
             ws_thread = threading.Thread(target=ws.run_forever, kwargs={"ping_interval": 30}, daemon=True)
             ws_thread.start()
             log.info("ws_connected", url=WS_URL)
+            reconnect_delay = 5  # reset on successful connect
             while not shutdown_event.is_set() and ws_thread.is_alive():
                 shutdown_event.wait(5)
             ws.close()
         except Exception as e:
-            log.error("ws_reconnect", error=str(e))
-            shutdown_event.wait(5)
+            log.error("ws_reconnect", error=str(e), retry_in=reconnect_delay)
+            shutdown_event.wait(reconnect_delay)
+            reconnect_delay = min(reconnect_delay * 2, 60)  # backoff: 5→10→20→40→60s

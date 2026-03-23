@@ -85,6 +85,12 @@ def _get(path: str, params: dict[str, Any] | None = None) -> Any:
     return data
 
 
+def get_mark_price(symbol: str) -> float:
+    """Get current mark price (no auth needed)."""
+    r = requests.get(f"{FAPI}/fapi/v1/ticker/price", params={"symbol": symbol}, timeout=5)
+    return float(r.json()["price"])
+
+
 def fetch_klines(symbol: str, interval: str, limit: int = 100) -> list[list]:
     """Fetch klines (no auth needed)."""
     r = requests.get(
@@ -119,13 +125,22 @@ def get_all_positions(symbol: str) -> list[dict]:
 
 
 def place_market_order(symbol: str, side: str, position_side: str, qty: float) -> dict:
-    return _post("/fapi/v1/order", {
+    params = {
         "symbol": symbol,
         "side": side,
         "positionSide": position_side,
         "type": "MARKET",
         "quantity": qty,
-    })
+    }
+    try:
+        return _post("/fapi/v1/order", params)
+    except RuntimeError as first_err:
+        err_msg = str(first_err)
+        if "insufficient" in err_msg.lower() or "4131" in err_msg:
+            raise  # margin/qty errors — don't retry
+        log.warning("market_order_retry", error=err_msg)
+        time.sleep(1)
+        return _post("/fapi/v1/order", params)
 
 
 def get_position(symbol: str, position_side: str = "") -> dict | None:
